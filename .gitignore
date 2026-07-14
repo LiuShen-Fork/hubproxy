@@ -8,6 +8,13 @@
 *.exe
 build/
 
+# SQLite runtime data
+data/
+src/data/
+*.db
+*.db-shm
+*.db-wal
+
 # Frontend (web/)
 web/node_modules/
 web/dist/

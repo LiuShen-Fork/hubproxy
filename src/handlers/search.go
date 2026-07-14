@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"hubproxy/db"
 	"hubproxy/utils"
 )
 
@@ -469,6 +470,10 @@ func sendErrorResponse(c *gin.Context, message string) {
 // RegisterSearchRoute 注册搜索与标签相关 API 路由。
 func RegisterSearchRoute(r *gin.Engine) {
 	r.GET("/api/search", func(c *gin.Context) {
+		if !db.GlobalRuntime.GetFeatures().ImageSearch {
+			sendErrorResponse(c, "镜像搜索已关闭")
+			return
+		}
 		query := c.Query("q")
 		if query == "" {
 			sendErrorResponse(c, "搜索关键词不能为空")

@@ -13,6 +13,7 @@ import (
 	"github.com/google/go-containerregistry/pkg/name"
 	"github.com/google/go-containerregistry/pkg/v1/remote"
 	"hubproxy/config"
+	"hubproxy/db"
 	"hubproxy/utils"
 )
 
@@ -29,19 +30,17 @@ type RegistryDetector struct{}
 
 // detectRegistryDomain 检测Registry域名并返回域名和剩余路径
 func (rd *RegistryDetector) detectRegistryDomain(c *gin.Context, path string) (string, string) {
-	cfg := config.GetConfig()
-
 	// 兼容Containerd的ns参数
 	if ns := c.Query("ns"); ns != "" {
-		if mapping, exists := cfg.Registries[ns]; exists && mapping.Enabled {
+		if reg, ok := db.GlobalRuntime.GetRegistry(ns); ok && reg.Enabled {
 			return ns, path
 		}
 	}
 
-	for domain := range cfg.Registries {
-		if strings.HasPrefix(path, domain+"/") {
-			remainingPath := strings.TrimPrefix(path, domain+"/")
-			return domain, remainingPath
+	for _, reg := range db.GlobalRuntime.GetRegistries() {
+		if strings.HasPrefix(path, reg.Domain+"/") {
+			remainingPath := strings.TrimPrefix(path, reg.Domain+"/")
+			return reg.Domain, remainingPath
 		}
 	}
 
@@ -50,18 +49,24 @@ func (rd *RegistryDetector) detectRegistryDomain(c *gin.Context, path string) (s
 
 // isRegistryEnabled 检查Registry是否启用
 func (rd *RegistryDetector) isRegistryEnabled(domain string) bool {
-	cfg := config.GetConfig()
-	if mapping, exists := cfg.Registries[domain]; exists {
-		return mapping.Enabled
+	if reg, ok := db.GlobalRuntime.GetRegistry(domain); ok {
+		return reg.Enabled
 	}
 	return false
 }
 
 // getRegistryMapping 获取Registry映射配置
 func (rd *RegistryDetector) getRegistryMapping(domain string) (config.RegistryMapping, bool) {
-	cfg := config.GetConfig()
-	mapping, exists := cfg.Registries[domain]
-	return mapping, exists && mapping.Enabled
+	reg, ok := db.GlobalRuntime.GetRegistry(domain)
+	if !ok || !reg.Enabled {
+		return config.RegistryMapping{}, false
+	}
+	return config.RegistryMapping{
+		Upstream: reg.Upstream,
+		AuthHost: reg.AuthHost,
+		AuthType: reg.AuthType,
+		Enabled:  reg.Enabled,
+	}, true
 }
 
 var registryDetector = &RegistryDetector{}
@@ -88,9 +93,15 @@ func InitDockerProxy() {
 
 // ProxyDockerRegistryGin 标准Docker Registry API v2代理
 func ProxyDockerRegistryGin(c *gin.Context) {
+	if _, _, denied := stripUserAccessToken(c); denied != "" {
+		denyDocker(c, http.StatusUnauthorized, denied)
+		return
+	}
+
 	path := c.Request.URL.Path
 
-	if path == "/v2/" {
+	if path == "/v2/" || path == "/v2" {
+		c.Header("Docker-Distribution-API-Version", "registry/2.0")
 		c.JSON(http.StatusOK, gin.H{})
 		return
 	}
@@ -123,10 +134,25 @@ func handleRegistryRequest(c *gin.Context, path string) {
 		imageName = "library/" + imageName
 	}
 
+	if !ensureDockerHubEnabled(c) {
+		return
+	}
+
 	if allowed, reason := utils.GlobalAccessController.CheckDockerAccess(imageName); !allowed {
 		fmt.Printf("Docker镜像 %s 访问被拒绝: %s\n", imageName, reason)
 		c.String(http.StatusForbidden, "镜像访问被限制")
 		return
+	}
+
+	tag := reference
+	if apiType == "blobs" || strings.HasPrefix(reference, "sha256:") {
+		tag = "digest"
+	}
+	if apiType == "manifests" || apiType == "blobs" {
+		if _, reason := trackDockerPull(c, imageName, "docker.io", tag, apiType, reference); reason != "" {
+			c.String(http.StatusTooManyRequests, reason)
+			return
+		}
 	}
 
 	imageRef := fmt.Sprintf("%s/%s", dockerProxy.registry.Name(), imageName)
@@ -176,6 +202,7 @@ func handleManifestRequest(c *gin.Context, imageRef, reference string) {
 
 		if cachedItem := utils.GlobalCache.Get(cacheKey); cachedItem != nil {
 			utils.WriteCachedResponse(c, cachedItem)
+			recordPullBytes(c, "manifest", reference, int64(len(cachedItem.Data)), http.StatusOK)
 			return
 		}
 	}
@@ -207,6 +234,7 @@ func handleManifestRequest(c *gin.Context, imageRef, reference string) {
 		c.Header("Docker-Content-Digest", desc.Digest.String())
 		c.Header("Content-Length", fmt.Sprintf("%d", desc.Size))
 		c.Status(http.StatusOK)
+		recordPullBytes(c, "manifest_head", reference, 0, http.StatusOK)
 	} else {
 		desc, err := remote.Get(ref, dockerProxy.options...)
 		if err != nil {
@@ -232,6 +260,7 @@ func handleManifestRequest(c *gin.Context, imageRef, reference string) {
 		}
 
 		c.Data(http.StatusOK, string(desc.MediaType), desc.Manifest)
+		recordPullBytes(c, "manifest", reference, int64(len(desc.Manifest)), http.StatusOK)
 	}
 }
 
@@ -270,10 +299,17 @@ func handleBlobRequest(c *gin.Context, imageRef, digest string) {
 	c.Header("Content-Length", fmt.Sprintf("%d", size))
 	c.Header("Docker-Content-Digest", digest)
 
+	cw := &countingWriter{ResponseWriter: c.Writer}
+	c.Writer = cw
 	c.Status(http.StatusOK)
 	if _, err := io.Copy(c.Writer, reader); err != nil {
 		fmt.Printf("复制layer内容失败: %v\n", err)
 	}
+	n := cw.n
+	if n == 0 {
+		n = size
+	}
+	recordPullBytes(c, "blob", digest, n, http.StatusOK)
 }
 
 // handleTagsRequest 处理tags列表请求
@@ -429,12 +465,11 @@ func resolveAuthHost(service string) string {
 		return ""
 	}
 
-	cfg := config.GetConfig()
-	for domain, mapping := range cfg.Registries {
+	for _, mapping := range db.GlobalRuntime.GetRegistries() {
 		if !mapping.Enabled || mapping.AuthHost == "" {
 			continue
 		}
-		if service == domain || service == mapping.Upstream {
+		if service == mapping.Domain || service == mapping.Upstream {
 			return mapping.AuthHost
 		}
 	}
@@ -445,8 +480,7 @@ func resolveAuthHost(service string) string {
 func rewriteAuthHeader(authHeader, proxyHost string) string {
 	proxyToken := "http://" + proxyHost + "/token"
 
-	cfg := config.GetConfig()
-	for _, mapping := range cfg.Registries {
+	for _, mapping := range db.GlobalRuntime.GetRegistries() {
 		if mapping.AuthHost == "" {
 			continue
 		}
@@ -472,11 +506,27 @@ func handleMultiRegistryRequest(c *gin.Context, registryDomain, remainingPath st
 		return
 	}
 
+	if ok, reason := ensureRegistryEnabled(registryDomain); !ok {
+		c.String(http.StatusForbidden, reason)
+		return
+	}
+
 	fullImageName := registryDomain + "/" + imageName
 	if allowed, reason := utils.GlobalAccessController.CheckDockerAccess(fullImageName); !allowed {
 		fmt.Printf("镜像 %s 访问被拒绝: %s\n", fullImageName, reason)
 		c.String(http.StatusForbidden, "镜像访问被限制")
 		return
+	}
+
+	tag := reference
+	if apiType == "blobs" || strings.HasPrefix(reference, "sha256:") {
+		tag = "digest"
+	}
+	if apiType == "manifests" || apiType == "blobs" {
+		if _, reason := trackDockerPull(c, imageName, registryDomain, tag, apiType, reference); reason != "" {
+			c.String(http.StatusTooManyRequests, reason)
+			return
+		}
 	}
 
 	upstreamImageRef := fmt.Sprintf("%s/%s", mapping.Upstream, imageName)
@@ -500,6 +550,7 @@ func handleUpstreamManifestRequest(c *gin.Context, imageRef, reference string, m
 
 		if cachedItem := utils.GlobalCache.Get(cacheKey); cachedItem != nil {
 			utils.WriteCachedResponse(c, cachedItem)
+			recordPullBytes(c, "manifest", reference, int64(len(cachedItem.Data)), http.StatusOK)
 			return
 		}
 	}
@@ -533,6 +584,7 @@ func handleUpstreamManifestRequest(c *gin.Context, imageRef, reference string, m
 		c.Header("Docker-Content-Digest", desc.Digest.String())
 		c.Header("Content-Length", fmt.Sprintf("%d", desc.Size))
 		c.Status(http.StatusOK)
+		recordPullBytes(c, "manifest_head", reference, 0, http.StatusOK)
 	} else {
 		desc, err := remote.Get(ref, options...)
 		if err != nil {
@@ -558,6 +610,7 @@ func handleUpstreamManifestRequest(c *gin.Context, imageRef, reference string, m
 		}
 
 		c.Data(http.StatusOK, string(desc.MediaType), desc.Manifest)
+		recordPullBytes(c, "manifest", reference, int64(len(desc.Manifest)), http.StatusOK)
 	}
 }
 
@@ -597,10 +650,17 @@ func handleUpstreamBlobRequest(c *gin.Context, imageRef, digest string, mapping 
 	c.Header("Content-Length", fmt.Sprintf("%d", size))
 	c.Header("Docker-Content-Digest", digest)
 
+	cw := &countingWriter{ResponseWriter: c.Writer}
+	c.Writer = cw
 	c.Status(http.StatusOK)
 	if _, err := io.Copy(c.Writer, reader); err != nil {
 		fmt.Printf("复制layer内容失败: %v\n", err)
 	}
+	n := cw.n
+	if n == 0 {
+		n = size
+	}
+	recordPullBytes(c, "blob", digest, n, http.StatusOK)
 }
 
 // handleUpstreamTagsRequest 处理上游Registry的tags请求

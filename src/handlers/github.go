@@ -10,6 +10,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"hubproxy/config"
+	"hubproxy/db"
 	"hubproxy/utils"
 )
 
@@ -53,6 +54,17 @@ func GitHubProxyHandler(c *gin.Context) {
 			rawPath = strings.TrimPrefix(rawPath, "http://")
 		}
 		rawPath = "https://" + rawPath
+	}
+
+	feat := db.GlobalRuntime.GetFeatures()
+	isHF := strings.Contains(rawPath, "huggingface.co") || strings.Contains(rawPath, "cdn-lfs.hf.co")
+	if isHF && !feat.HuggingFace {
+		c.String(http.StatusForbidden, "Hugging Face 加速已关闭")
+		return
+	}
+	if !isHF && !feat.GitHub {
+		c.String(http.StatusForbidden, "GitHub 加速已关闭")
+		return
 	}
 
 	matches := CheckGitHubURL(rawPath)

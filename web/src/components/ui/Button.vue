@@ -7,11 +7,13 @@ const props = withDefaults(
     variant?: 'default' | 'secondary' | 'outline' | 'ghost'
     size?: 'default' | 'sm' | 'icon'
     disabled?: boolean
+    type?: 'button' | 'submit' | 'reset'
     class?: HTMLAttributes['class']
   }>(),
   {
     variant: 'default',
     size: 'default',
+    type: 'button',
   },
 )
 
@@ -31,7 +33,7 @@ const sizes: Record<NonNullable<typeof props.size>, string> = {
 
 <template>
   <button
-    type="button"
+    :type="type"
     :disabled="disabled"
     :class="cn(
       'inline-flex items-center justify-center gap-1.5 rounded-lg font-medium outline-none transition-[opacity,transform,background-color,color] duration-150 ease-out active:scale-[0.98] focus-visible:ring-2 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50',

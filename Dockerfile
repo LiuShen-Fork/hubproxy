@@ -27,4 +27,7 @@ WORKDIR /app
 COPY --from=builder /app/hubproxy .
 COPY --from=builder /app/config.toml .
 
+RUN mkdir -p /app/data
+VOLUME ["/app/data"]
+
 CMD ["./hubproxy"]
