@@ -19,8 +19,9 @@ const (
 
 	DefaultAdminUsername = "admin"
 	DefaultAdminPassword = "admin12346"
-	SessionTTL           = 24 * time.Hour
+	SessionTTL           = 12 * time.Hour
 	BcryptCost           = 12
+	DefaultDailyPullLimit = 30
 )
 
 var (
@@ -35,6 +36,7 @@ type User struct {
 	Username           string `json:"username"`
 	Role               string `json:"role"`
 	MustChangePassword bool   `json:"must_change_password"`
+	DailyPullLimit     int    `json:"daily_pull_limit"`
 	CreatedAt          string `json:"created_at"`
 	UpdatedAt          string `json:"updated_at"`
 	LastLoginAt        string `json:"last_login_at,omitempty"`
@@ -65,9 +67,9 @@ func EnsureDefaultAdmin() error {
 	}
 	now := Now()
 	res, err := DB.Exec(
-		`INSERT INTO users (username, password_hash, role, must_change_password, created_at, updated_at)
-		 VALUES (?, ?, ?, 1, ?, ?)`,
-		DefaultAdminUsername, hash, RoleAdmin, now, now,
+		`INSERT INTO users (username, password_hash, role, must_change_password, daily_pull_limit, created_at, updated_at)
+		 VALUES (?, ?, ?, 1, ?, ?, ?)`,
+		DefaultAdminUsername, hash, RoleAdmin, DefaultDailyPullLimit, now, now,
 	)
 	if err != nil {
 		return err
@@ -103,9 +105,9 @@ func CreateUser(username, password, role string) (*User, error) {
 	}
 	now := Now()
 	res, err := DB.Exec(
-		`INSERT INTO users (username, password_hash, role, must_change_password, created_at, updated_at)
-		 VALUES (?, ?, ?, 0, ?, ?)`,
-		username, hash, role, now, now,
+		`INSERT INTO users (username, password_hash, role, must_change_password, daily_pull_limit, created_at, updated_at)
+		 VALUES (?, ?, ?, 0, ?, ?, ?)`,
+		username, hash, role, DefaultDailyPullLimit, now, now,
 	)
 	if err != nil {
 		if strings.Contains(err.Error(), "UNIQUE") {
@@ -118,52 +120,65 @@ func CreateUser(username, password, role string) (*User, error) {
 	return GetUserByID(id)
 }
 
-func GetUserByID(id int64) (*User, error) {
+func scanUser(row interface {
+	Scan(dest ...any) error
+}, withHash bool) (*User, string, error) {
 	u := &User{}
 	var lastLogin sql.NullString
 	var mustChange int
-	err := DB.QueryRow(
-		`SELECT id, username, role, must_change_password, created_at, updated_at, last_login_at
-		 FROM users WHERE id = ?`, id,
-	).Scan(&u.ID, &u.Username, &u.Role, &mustChange, &u.CreatedAt, &u.UpdatedAt, &lastLogin)
-	if errors.Is(err, sql.ErrNoRows) {
-		return nil, ErrUserNotFound
-	}
-	if err != nil {
-		return nil, err
-	}
-	u.MustChangePassword = mustChange == 1
-	if lastLogin.Valid {
-		u.LastLoginAt = lastLogin.String
-	}
-	return u, nil
-}
-
-func GetUserByUsername(username string) (*User, string, error) {
-	u := &User{}
 	var hash string
-	var lastLogin sql.NullString
-	var mustChange int
-	err := DB.QueryRow(
-		`SELECT id, username, password_hash, role, must_change_password, created_at, updated_at, last_login_at
-		 FROM users WHERE username = ? COLLATE NOCASE`, username,
-	).Scan(&u.ID, &u.Username, &hash, &u.Role, &mustChange, &u.CreatedAt, &u.UpdatedAt, &lastLogin)
-	if errors.Is(err, sql.ErrNoRows) {
-		return nil, "", ErrUserNotFound
+	var err error
+	if withHash {
+		err = row.Scan(&u.ID, &u.Username, &hash, &u.Role, &mustChange, &u.DailyPullLimit, &u.CreatedAt, &u.UpdatedAt, &lastLogin)
+	} else {
+		err = row.Scan(&u.ID, &u.Username, &u.Role, &mustChange, &u.DailyPullLimit, &u.CreatedAt, &u.UpdatedAt, &lastLogin)
 	}
 	if err != nil {
 		return nil, "", err
 	}
 	u.MustChangePassword = mustChange == 1
+	if u.DailyPullLimit <= 0 {
+		u.DailyPullLimit = DefaultDailyPullLimit
+	}
 	if lastLogin.Valid {
 		u.LastLoginAt = lastLogin.String
 	}
 	return u, hash, nil
 }
 
+func GetUserByID(id int64) (*User, error) {
+	row := DB.QueryRow(
+		`SELECT id, username, role, must_change_password, COALESCE(daily_pull_limit, 30), created_at, updated_at, last_login_at
+		 FROM users WHERE id = ?`, id,
+	)
+	u, _, err := scanUser(row, false)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrUserNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	return u, nil
+}
+
+func GetUserByUsername(username string) (*User, string, error) {
+	row := DB.QueryRow(
+		`SELECT id, username, password_hash, role, must_change_password, COALESCE(daily_pull_limit, 30), created_at, updated_at, last_login_at
+		 FROM users WHERE username = ? COLLATE NOCASE`, username,
+	)
+	u, hash, err := scanUser(row, true)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, "", ErrUserNotFound
+	}
+	if err != nil {
+		return nil, "", err
+	}
+	return u, hash, nil
+}
+
 func ListUsers() ([]User, error) {
 	rows, err := DB.Query(
-		`SELECT id, username, role, must_change_password, created_at, updated_at, last_login_at
+		`SELECT id, username, role, must_change_password, COALESCE(daily_pull_limit, 30), created_at, updated_at, last_login_at
 		 FROM users ORDER BY id ASC`,
 	)
 	if err != nil {
@@ -173,19 +188,24 @@ func ListUsers() ([]User, error) {
 
 	var list []User
 	for rows.Next() {
-		var u User
-		var lastLogin sql.NullString
-		var mustChange int
-		if err := rows.Scan(&u.ID, &u.Username, &u.Role, &mustChange, &u.CreatedAt, &u.UpdatedAt, &lastLogin); err != nil {
+		u, _, err := scanUser(rows, false)
+		if err != nil {
 			return nil, err
 		}
-		u.MustChangePassword = mustChange == 1
-		if lastLogin.Valid {
-			u.LastLoginAt = lastLogin.String
-		}
-		list = append(list, u)
+		list = append(list, *u)
 	}
 	return list, rows.Err()
+}
+
+func UpdateDailyPullLimit(userID int64, limit int) error {
+	if limit < 0 {
+		return fmt.Errorf("每日拉取上限不能为负数")
+	}
+	if limit > 100000 {
+		return fmt.Errorf("每日拉取上限过大")
+	}
+	_, err := DB.Exec(`UPDATE users SET daily_pull_limit = ?, updated_at = ? WHERE id = ?`, limit, Now(), userID)
+	return err
 }
 
 func UpdatePassword(userID int64, newPassword string) error {

@@ -94,7 +94,14 @@ func InitDockerProxy() {
 // ProxyDockerRegistryGin 标准Docker Registry API v2代理
 func ProxyDockerRegistryGin(c *gin.Context) {
 	if _, _, denied := stripUserAccessToken(c); denied != "" {
-		denyDocker(c, http.StatusUnauthorized, denied)
+		// token invalid / IP whitelist → 401; public closed → 403
+		if strings.Contains(denied, "公共镜像") {
+			denyDockerForbidden(c, denied)
+		} else if strings.Contains(denied, "白名单") {
+			denyDockerForbidden(c, denied)
+		} else {
+			denyDockerAuth(c, denied)
+		}
 		return
 	}
 
@@ -150,7 +157,7 @@ func handleRegistryRequest(c *gin.Context, path string) {
 	}
 	if apiType == "manifests" || apiType == "blobs" {
 		if _, reason := trackDockerPull(c, imageName, "docker.io", tag, apiType, reference); reason != "" {
-			c.String(http.StatusTooManyRequests, reason)
+			denyDockerTooMany(c, reason)
 			return
 		}
 	}
@@ -524,7 +531,7 @@ func handleMultiRegistryRequest(c *gin.Context, registryDomain, remainingPath st
 	}
 	if apiType == "manifests" || apiType == "blobs" {
 		if _, reason := trackDockerPull(c, imageName, registryDomain, tag, apiType, reference); reason != "" {
-			c.String(http.StatusTooManyRequests, reason)
+			denyDockerTooMany(c, reason)
 			return
 		}
 	}

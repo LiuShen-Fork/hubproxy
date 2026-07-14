@@ -53,8 +53,10 @@ type FeatureToggles struct {
 	HuggingFace  bool `json:"huggingface"`
 	ImageSearch  bool `json:"image_search"`
 	OfflineImage bool `json:"offline_image"`
-	// RequireUserToken: docker pulls must use /TOKEN/... path
-	RequireUserToken bool `json:"require_user_token"`
+	// PublicMirror: when true, allow docker pull without user token path
+	PublicMirror bool `json:"public_mirror"`
+	// RequireUserToken kept for backward-compatible JSON; ignored if PublicMirror is set in new clients
+	RequireUserToken bool `json:"require_user_token,omitempty"`
 }
 
 type RegistryToggle struct {
@@ -94,12 +96,12 @@ func SetSetting(key string, value any) error {
 
 func DefaultFeatureToggles() FeatureToggles {
 	return FeatureToggles{
-		DockerHub:        true,
-		GitHub:           true,
-		HuggingFace:      true,
-		ImageSearch:      true,
-		OfflineImage:     true,
-		RequireUserToken: true,
+		DockerHub:    true,
+		GitHub:       true,
+		HuggingFace:  true,
+		ImageSearch:  true,
+		OfflineImage: true,
+		PublicMirror: false, // 默认关闭公共镜像，需令牌
 	}
 }
 
@@ -250,8 +252,27 @@ func LoadFeatures() FeatureToggles {
 	if err := GetSetting(KeyFeatures, &s); err != nil {
 		return def
 	}
-	// zero-value bool is false; if key missing fields stay false — only use def on total miss
+	// migrate old require_user_token → public_mirror
+	// if old installs only had require_user_token=true, public_mirror should stay false
+	if s.RequireUserToken && !s.PublicMirror {
+		s.PublicMirror = false
+	}
+	// if JSON had require_user_token:false explicitly and public_mirror zero → public on
+	// Detect via raw map
+	var raw map[string]any
+	if GetSetting(KeyFeatures, &raw) == nil {
+		if _, hasPublic := raw["public_mirror"]; !hasPublic {
+			if v, ok := raw["require_user_token"].(bool); ok {
+				s.PublicMirror = !v
+			}
+		}
+	}
 	return s
+}
+
+// AllowPublicDockerPull is true when anonymous/no-token docker pulls are allowed.
+func (f FeatureToggles) AllowPublicDockerPull() bool {
+	return f.PublicMirror
 }
 
 func LoadRegistries() []RegistryToggle {

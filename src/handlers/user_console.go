@@ -14,10 +14,24 @@ func UserDashboard(c *gin.Context) {
 	days, _ := strconv.Atoi(c.DefaultQuery("days", "14"))
 	stats, err := db.GetUserDashboardStats(u.ID, days)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error(), "code": "INTERNAL_ERROR"})
 		return
 	}
-	c.JSON(http.StatusOK, stats)
+	quota, _ := db.GetUserQuota(u.ID)
+	c.JSON(http.StatusOK, gin.H{
+		"stats": stats,
+		"quota": quota,
+	})
+}
+
+func UserQuota(c *gin.Context) {
+	u := currentUser(c)
+	quota, err := db.GetUserQuota(u.ID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error(), "code": "INTERNAL_ERROR"})
+		return
+	}
+	c.JSON(http.StatusOK, quota)
 }
 
 func UserListPulls(c *gin.Context) {
@@ -155,8 +169,10 @@ func UserGuide(c *gin.Context) {
 			"方式 A（推荐显式）：docker pull " + host + "/你的令牌/镜像名:标签",
 			"方式 B（daemon.json）：registry-mirrors 配置为 https://" + host + "/你的令牌 ，之后可直接 docker pull nginx",
 			"第三方源：docker pull " + host + "/令牌/ghcr.io/owner/app:tag",
+			"请勿在浏览器中直接打开 /令牌 路径（会返回 404，避免被搜索引擎收录）",
 			"重置令牌后旧令牌立即失效，且永不复用；若用了 daemon.json 需同步改 mirror 路径",
 			"用户 IP 白名单为空表示不限制 IP；配置后仅允许列表内 IP 使用你的令牌",
+			"每日拉取次数按本地时间 0 点重置，可在用户概览查看剩余次数",
 		},
 	})
 }

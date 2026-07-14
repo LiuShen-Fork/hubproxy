@@ -109,13 +109,32 @@ func stripUserAccessToken(c *gin.Context) (userID int64, token string, denied st
 			c.Set(ctxAccessToken, tok)
 			return at.UserID, tok, ""
 		}
-		if feat.RequireUserToken {
-			return 0, "", "请使用个人访问路径：docker pull 域名/令牌/镜像 或配置 registry-mirrors 为 https://域名/令牌"
+		// Public mirror disabled → must use personal token path
+		if !feat.AllowPublicDockerPull() {
+			return 0, "", "公共镜像已关闭，请使用个人令牌路径：docker pull 域名/令牌/镜像 或 registry-mirrors: https://域名/令牌"
 		}
 		return 0, "", ""
 	}
 
 	return 0, "", ""
+}
+
+// DenyTokenPathBrowse returns 404 JSON for browser/search-engine hits on /TOKEN or /TOKEN/...
+// that are not valid Docker registry API paths, to avoid indexing personal tokens.
+func DenyTokenPathBrowse(c *gin.Context) {
+	tok := c.Param("token")
+	if !db.IsAccessTokenFormat(tok) {
+		c.Status(http.StatusNotFound)
+		return
+	}
+	// valid docker paths under token are handled by other routes; this is catch-all browse
+	c.Header("X-Robots-Tag", "noindex, nofollow, noarchive")
+	c.Header("Cache-Control", "no-store")
+	c.JSON(http.StatusNotFound, gin.H{
+		"error": "页面不存在",
+		"code":  "NOT_FOUND",
+		"hint":  "此路径仅用于 Docker 镜像拉取，请勿在浏览器中打开",
+	})
 }
 
 func accessUserFromContext(c *gin.Context) (userID int64, token string) {
@@ -134,7 +153,25 @@ func accessUserFromContext(c *gin.Context) (userID int64, token string) {
 
 func denyDocker(c *gin.Context, status int, msg string) {
 	c.Header("Docker-Distribution-API-Version", "registry/2.0")
+	// Docker clients expect plain text; also set Docker-compatible error when possible
 	c.String(status, msg)
+}
+
+func denyDockerAuth(c *gin.Context, msg string) {
+	c.Header("Docker-Distribution-API-Version", "registry/2.0")
+	c.Header("WWW-Authenticate", `Bearer realm="token",error="invalid_token"`)
+	c.String(http.StatusUnauthorized, msg)
+}
+
+func denyDockerForbidden(c *gin.Context, msg string) {
+	c.Header("Docker-Distribution-API-Version", "registry/2.0")
+	c.String(http.StatusForbidden, msg)
+}
+
+func denyDockerTooMany(c *gin.Context, msg string) {
+	c.Header("Docker-Distribution-API-Version", "registry/2.0")
+	c.Header("Retry-After", "3600")
+	c.String(http.StatusTooManyRequests, msg)
 }
 
 // Feature guard helpers

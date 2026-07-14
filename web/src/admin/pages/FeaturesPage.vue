@@ -87,12 +87,12 @@ onMounted(async () => {
         </div>
         <div class="flex items-center justify-between rounded-lg border border-border p-4">
           <div>
-            <div class="font-medium">强制用户令牌路径</div>
+            <div class="font-medium">开启公共镜像</div>
             <div class="text-sm text-muted-foreground">
-              开启后必须使用 docker pull 域名/令牌/镜像，便于多用户隔离与统计
+              开启后可不带令牌直接 docker pull 域名/镜像；关闭后必须使用个人令牌路径
             </div>
           </div>
-          <Switch v-model:checked="settings.features.require_user_token" />
+          <Switch v-model:checked="settings.features.public_mirror" />
         </div>
         <Button @click="saveFeatures">保存功能开关</Button>
       </CardContent>

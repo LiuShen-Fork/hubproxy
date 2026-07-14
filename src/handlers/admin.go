@@ -26,6 +26,7 @@ func RegisterAdminRoutes(r *gin.Engine) {
 
 		// User console — explicit full paths (avoid nested group routing issues)
 		auth.GET("/user/dashboard", UserDashboard)
+		auth.GET("/user/quota", UserQuota)
 		auth.GET("/user/pulls", UserListPulls)
 		auth.GET("/user/token", UserGetToken)
 		auth.POST("/user/token/reset", UserResetToken)
@@ -163,48 +164,55 @@ func AdminCreateUser(c *gin.Context) {
 }
 
 type updateUserRequest struct {
-	Username *string `json:"username"`
-	Role     *string `json:"role"`
-	Password *string `json:"password"`
+	Username       *string `json:"username"`
+	Role           *string `json:"role"`
+	Password       *string `json:"password"`
+	DailyPullLimit *int    `json:"daily_pull_limit"`
 }
 
 func AdminUpdateUser(c *gin.Context) {
 	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "无效的用户 ID", "code": "BAD_REQUEST"})
 		return
 	}
 	var req updateUserRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "参数无效"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "参数无效", "code": "BAD_REQUEST"})
 		return
 	}
 	if req.Username != nil {
 		if err := db.UpdateUsername(id, *req.Username); err != nil {
 			if err == db.ErrUserExists {
-				c.JSON(http.StatusConflict, gin.H{"error": "用户名已存在"})
+				c.JSON(http.StatusConflict, gin.H{"error": "用户名已存在", "code": "USER_EXISTS"})
 				return
 			}
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error(), "code": "BAD_REQUEST"})
 			return
 		}
 	}
 	if req.Role != nil {
 		if err := db.UpdateUserRole(id, *req.Role); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error(), "code": "BAD_REQUEST"})
 			return
 		}
 	}
 	if req.Password != nil {
 		if err := db.UpdatePassword(id, *req.Password); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error(), "code": "BAD_REQUEST"})
 			return
 		}
 		_ = db.DeleteUserSessions(id)
 	}
+	if req.DailyPullLimit != nil {
+		if err := db.UpdateDailyPullLimit(id, *req.DailyPullLimit); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error(), "code": "BAD_REQUEST"})
+			return
+		}
+	}
 	user, err := db.GetUserByID(id)
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "user not found"})
+		c.JSON(http.StatusNotFound, gin.H{"error": "用户不存在", "code": "NOT_FOUND"})
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"user": user})
