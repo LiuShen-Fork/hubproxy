@@ -370,6 +370,9 @@ func AdminPutPullSession(c *gin.Context) {
 	if req.IdleMinutes < 1 {
 		req.IdleMinutes = 30
 	}
+	if req.RePullGapSeconds < 30 {
+		req.RePullGapSeconds = 120
+	}
 	if err := db.SetSetting(db.KeyPullSession, req); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return

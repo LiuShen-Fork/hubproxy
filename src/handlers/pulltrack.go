@@ -28,7 +28,10 @@ func (w *countingWriter) WriteString(s string) (int, error) {
 }
 
 // trackDockerPull groups layer/manifest requests into one pull session.
-// Returns (session, deniedReason). If deniedReason != "", caller should reject.
+// Quota is checked only when this request may open a NEW countable path:
+// - brand-new session about to receive a blob, or
+// - existing session that already counted is fine; first blob on uncounted session also checks.
+// Manifest-only probes create sessions but do not consume daily quota.
 func trackDockerPull(c *gin.Context, imageName, registry, tag, eventType, reference string) (*db.PullSession, string) {
 	if imageName == "" {
 		return nil, ""
@@ -52,16 +55,27 @@ func trackDockerPull(c *gin.Context, imageName, registry, tag, eventType, refere
 	if err != nil {
 		fmt.Printf("pull session lookup error: %v\n", err)
 	}
-	if existing == nil {
-		if ok, reason := CheckPullQuota(ip, userID); !ok {
-			return nil, reason
+
+	// Only enforce quota when a real layer download is about to happen without an already-counted session
+	isBlob := eventType == "blobs" || eventType == "blob"
+	if isBlob {
+		if existing == nil || existing.LayerCount == 0 {
+			if ok, reason := CheckPullQuota(ip, userID); !ok {
+				return nil, reason
+			}
 		}
 	}
 
-	sess, _, err := db.FindOrCreatePullSession(ip, imageName, registry, tag, userID, accessToken)
+	sess, _, err := db.FindOrCreatePullSession(ip, imageName, registry, tag, eventType, userID, accessToken)
 	if err != nil {
 		fmt.Printf("pull session error: %v\n", err)
 		return nil, ""
+	}
+	// Re-check: FindOrCreate may have opened a new session for re-pull
+	if isBlob && sess != nil && sess.LayerCount == 0 {
+		if ok, reason := CheckPullQuota(ip, userID); !ok {
+			return nil, reason
+		}
 	}
 	c.Set("pull_session_id", sess.ID)
 	return sess, ""

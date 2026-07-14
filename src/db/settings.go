@@ -40,10 +40,13 @@ type AdminSettings struct {
 }
 
 type PullSessionSettings struct {
-	// WindowMinutes: requests for same IP+image within this window count as one pull
+	// WindowMinutes: how long to keep a session "active" for matching same pull's layers
 	WindowMinutes int `json:"window_minutes"`
 	// IdleMinutes: mark active session completed after idle
 	IdleMinutes int `json:"idle_minutes"`
+	// RePullGapSeconds: if a session already downloaded layers and is idle this long,
+	// a new tag-manifest starts a new countable pull (second docker pull).
+	RePullGapSeconds int `json:"re_pull_gap_seconds"`
 }
 
 // FeatureToggles controls each acceleration path.
@@ -133,8 +136,9 @@ func EnsureDefaultSettings(rateLimit RateLimitSettings, security SecuritySetting
 			RegisterEnabled: false,
 		},
 		KeyPullSession: PullSessionSettings{
-			WindowMinutes: 15,
-			IdleMinutes:   30,
+			WindowMinutes:    15,
+			IdleMinutes:      30,
+			RePullGapSeconds: 120,
 		},
 		KeyFeatures:   DefaultFeatureToggles(),
 		KeyRegistries: DefaultRegistryToggles(),
@@ -238,10 +242,13 @@ func LoadAdmin() AdminSettings {
 func LoadPullSession() PullSessionSettings {
 	var s PullSessionSettings
 	if err := GetSetting(KeyPullSession, &s); err != nil || s.WindowMinutes <= 0 {
-		return PullSessionSettings{WindowMinutes: 15, IdleMinutes: 30}
+		return PullSessionSettings{WindowMinutes: 15, IdleMinutes: 30, RePullGapSeconds: 120}
 	}
 	if s.IdleMinutes <= 0 {
 		s.IdleMinutes = 30
+	}
+	if s.RePullGapSeconds <= 0 {
+		s.RePullGapSeconds = 120
 	}
 	return s
 }
