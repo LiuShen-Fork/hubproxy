@@ -3,6 +3,7 @@ import { onMounted, ref } from 'vue'
 import Button from '@/components/ui/Button.vue'
 import Input from '@/components/ui/Input.vue'
 import Label from '@/components/ui/Label.vue'
+import Select from '@/components/ui/Select.vue'
 import Card from '@/components/ui/Card.vue'
 import CardContent from '@/components/ui/CardContent.vue'
 import CardHeader from '@/components/ui/CardHeader.vue'
@@ -10,6 +11,11 @@ import CardTitle from '@/components/ui/CardTitle.vue'
 import Badge from '@/components/ui/Badge.vue'
 import { adminApi, formatTime, type User } from '../api'
 import { useAuth } from '../auth'
+
+const roleOptions = [
+  { value: 'user', label: '普通用户' },
+  { value: 'admin', label: '管理员' },
+]
 
 const items = ref<User[]>([])
 const username = ref('')
@@ -113,13 +119,10 @@ onMounted(load)
         </div>
         <div class="space-y-2">
           <Label>角色</Label>
-          <select v-model="role" class="h-11 w-full rounded-lg border border-input bg-transparent px-3 text-sm">
-            <option value="user">user</option>
-            <option value="admin">admin</option>
-          </select>
+          <Select v-model="role" :options="roleOptions" />
         </div>
         <div class="flex items-end">
-          <Button class="w-full" @click="create">创建</Button>
+          <Button class="w-full rounded-xl" @click="create">创建</Button>
         </div>
       </CardContent>
     </Card>

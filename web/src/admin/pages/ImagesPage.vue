@@ -2,10 +2,17 @@
 import { onMounted, ref, watch } from 'vue'
 import Button from '@/components/ui/Button.vue'
 import Input from '@/components/ui/Input.vue'
+import Select from '@/components/ui/Select.vue'
 import Card from '@/components/ui/Card.vue'
 import CardContent from '@/components/ui/CardContent.vue'
 import Badge from '@/components/ui/Badge.vue'
 import { adminApi, formatBytes } from '../api'
+
+const categoryOptions = [
+  { value: '', label: '全部类别' },
+  { value: 'library', label: 'library' },
+  { value: 'user', label: 'user' },
+]
 
 const items = ref<any[]>([])
 const total = ref(0)
@@ -37,12 +44,8 @@ const pages = () => Math.max(1, Math.ceil(total.value / 20))
       <CardContent class="grid gap-3 pt-5 md:grid-cols-4">
         <Input v-model="image" placeholder="镜像名称" />
         <Input v-model="registry" placeholder="Registry" />
-        <select v-model="category" class="h-11 rounded-lg border border-input bg-transparent px-3 text-sm">
-          <option value="">全部类别</option>
-          <option value="library">library</option>
-          <option value="user">user</option>
-        </select>
-        <Button @click="page = 1; load()">查询</Button>
+        <Select v-model="category" :options="categoryOptions" />
+        <Button class="rounded-xl" @click="page = 1; load()">查询</Button>
       </CardContent>
     </Card>
     <Card>
