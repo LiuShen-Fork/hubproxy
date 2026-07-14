@@ -28,9 +28,6 @@ type AppConfig struct {
 		EnableH2C      bool   `toml:"enableH2C"`
 		EnableFrontend bool   `toml:"enableFrontend"`
 		DatabasePath   string `toml:"databasePath"`
-		// SiteAccessKey: when set, browser UI requires /gate/{key} unlock (cookie).
-		// Docker /v2 /token and GitHub proxy are never blocked.
-		SiteAccessKey string `toml:"siteAccessKey"`
 	} `toml:"server"`
 
 	RateLimit struct {
@@ -81,7 +78,6 @@ func DefaultConfig() *AppConfig {
 			EnableH2C      bool   `toml:"enableH2C"`
 			EnableFrontend bool   `toml:"enableFrontend"`
 			DatabasePath   string `toml:"databasePath"`
-			SiteAccessKey  string `toml:"siteAccessKey"`
 		}{
 			Host:           "0.0.0.0",
 			Port:           5000,
@@ -89,7 +85,6 @@ func DefaultConfig() *AppConfig {
 			EnableH2C:      false,
 			EnableFrontend: true,
 			DatabasePath:   "data/hubproxy.db",
-			SiteAccessKey:  "",
 		},
 		RateLimit: struct {
 			RequestLimit int     `toml:"requestLimit"`
@@ -255,9 +250,6 @@ func overrideFromEnv(cfg *AppConfig) {
 		if enable, err := strconv.ParseBool(val); err == nil {
 			cfg.Server.EnableFrontend = enable
 		}
-	}
-	if val := os.Getenv("SITE_ACCESS_KEY"); val != "" {
-		cfg.Server.SiteAccessKey = strings.TrimSpace(val)
 	}
 	if val := os.Getenv("MAX_FILE_SIZE"); val != "" {
 		if size, err := strconv.ParseInt(val, 10, 64); err == nil && size > 0 {

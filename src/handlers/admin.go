@@ -163,10 +163,9 @@ func AdminCreateUser(c *gin.Context) {
 }
 
 type updateUserRequest struct {
-	Username       *string `json:"username"`
-	Role           *string `json:"role"`
-	Password       *string `json:"password"`
-	DailyPullLimit *int    `json:"daily_pull_limit"`
+	Username *string `json:"username"`
+	Role     *string `json:"role"`
+	Password *string `json:"password"`
 }
 
 func AdminUpdateUser(c *gin.Context) {
@@ -192,12 +191,6 @@ func AdminUpdateUser(c *gin.Context) {
 	}
 	if req.Role != nil {
 		if err := db.UpdateUserRole(id, *req.Role); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-			return
-		}
-	}
-	if req.DailyPullLimit != nil {
-		if err := db.UpdateUserDailyPullLimit(id, *req.DailyPullLimit); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}

@@ -19,10 +19,8 @@ const (
 
 	DefaultAdminUsername = "admin"
 	DefaultAdminPassword = "admin12346"
-	SessionTTL           = 12 * time.Hour
+	SessionTTL           = 24 * time.Hour
 	BcryptCost           = 12
-	DefaultDailyPullLimit = 30
-	MaxSessionsPerUser    = 5
 )
 
 var (
@@ -37,7 +35,6 @@ type User struct {
 	Username           string `json:"username"`
 	Role               string `json:"role"`
 	MustChangePassword bool   `json:"must_change_password"`
-	DailyPullLimit     int    `json:"daily_pull_limit"`
 	CreatedAt          string `json:"created_at"`
 	UpdatedAt          string `json:"updated_at"`
 	LastLoginAt        string `json:"last_login_at,omitempty"`
@@ -68,9 +65,9 @@ func EnsureDefaultAdmin() error {
 	}
 	now := Now()
 	res, err := DB.Exec(
-		`INSERT INTO users (username, password_hash, role, must_change_password, daily_pull_limit, created_at, updated_at)
-		 VALUES (?, ?, ?, 1, ?, ?, ?)`,
-		DefaultAdminUsername, hash, RoleAdmin, DefaultDailyPullLimit, now, now,
+		`INSERT INTO users (username, password_hash, role, must_change_password, created_at, updated_at)
+		 VALUES (?, ?, ?, 1, ?, ?)`,
+		DefaultAdminUsername, hash, RoleAdmin, now, now,
 	)
 	if err != nil {
 		return err
@@ -106,9 +103,9 @@ func CreateUser(username, password, role string) (*User, error) {
 	}
 	now := Now()
 	res, err := DB.Exec(
-		`INSERT INTO users (username, password_hash, role, must_change_password, daily_pull_limit, created_at, updated_at)
-		 VALUES (?, ?, ?, 0, ?, ?, ?)`,
-		username, hash, role, DefaultDailyPullLimit, now, now,
+		`INSERT INTO users (username, password_hash, role, must_change_password, created_at, updated_at)
+		 VALUES (?, ?, ?, 0, ?, ?)`,
+		username, hash, role, now, now,
 	)
 	if err != nil {
 		if strings.Contains(err.Error(), "UNIQUE") {
@@ -121,34 +118,24 @@ func CreateUser(username, password, role string) (*User, error) {
 	return GetUserByID(id)
 }
 
-func scanUserRow(u *User, mustChange *int, lastLogin *sql.NullString, daily *int) {
-	u.MustChangePassword = *mustChange == 1
-	if daily != nil && *daily > 0 {
-		u.DailyPullLimit = *daily
-	} else {
-		u.DailyPullLimit = DefaultDailyPullLimit
-	}
-	if lastLogin != nil && lastLogin.Valid {
-		u.LastLoginAt = lastLogin.String
-	}
-}
-
 func GetUserByID(id int64) (*User, error) {
 	u := &User{}
 	var lastLogin sql.NullString
 	var mustChange int
-	var daily int
 	err := DB.QueryRow(
-		`SELECT id, username, role, must_change_password, COALESCE(daily_pull_limit, 30), created_at, updated_at, last_login_at
+		`SELECT id, username, role, must_change_password, created_at, updated_at, last_login_at
 		 FROM users WHERE id = ?`, id,
-	).Scan(&u.ID, &u.Username, &u.Role, &mustChange, &daily, &u.CreatedAt, &u.UpdatedAt, &lastLogin)
+	).Scan(&u.ID, &u.Username, &u.Role, &mustChange, &u.CreatedAt, &u.UpdatedAt, &lastLogin)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrUserNotFound
 	}
 	if err != nil {
 		return nil, err
 	}
-	scanUserRow(u, &mustChange, &lastLogin, &daily)
+	u.MustChangePassword = mustChange == 1
+	if lastLogin.Valid {
+		u.LastLoginAt = lastLogin.String
+	}
 	return u, nil
 }
 
@@ -157,24 +144,26 @@ func GetUserByUsername(username string) (*User, string, error) {
 	var hash string
 	var lastLogin sql.NullString
 	var mustChange int
-	var daily int
 	err := DB.QueryRow(
-		`SELECT id, username, password_hash, role, must_change_password, COALESCE(daily_pull_limit, 30), created_at, updated_at, last_login_at
+		`SELECT id, username, password_hash, role, must_change_password, created_at, updated_at, last_login_at
 		 FROM users WHERE username = ? COLLATE NOCASE`, username,
-	).Scan(&u.ID, &u.Username, &hash, &u.Role, &mustChange, &daily, &u.CreatedAt, &u.UpdatedAt, &lastLogin)
+	).Scan(&u.ID, &u.Username, &hash, &u.Role, &mustChange, &u.CreatedAt, &u.UpdatedAt, &lastLogin)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, "", ErrUserNotFound
 	}
 	if err != nil {
 		return nil, "", err
 	}
-	scanUserRow(u, &mustChange, &lastLogin, &daily)
+	u.MustChangePassword = mustChange == 1
+	if lastLogin.Valid {
+		u.LastLoginAt = lastLogin.String
+	}
 	return u, hash, nil
 }
 
 func ListUsers() ([]User, error) {
 	rows, err := DB.Query(
-		`SELECT id, username, role, must_change_password, COALESCE(daily_pull_limit, 30), created_at, updated_at, last_login_at
+		`SELECT id, username, role, must_change_password, created_at, updated_at, last_login_at
 		 FROM users ORDER BY id ASC`,
 	)
 	if err != nil {
@@ -187,11 +176,13 @@ func ListUsers() ([]User, error) {
 		var u User
 		var lastLogin sql.NullString
 		var mustChange int
-		var daily int
-		if err := rows.Scan(&u.ID, &u.Username, &u.Role, &mustChange, &daily, &u.CreatedAt, &u.UpdatedAt, &lastLogin); err != nil {
+		if err := rows.Scan(&u.ID, &u.Username, &u.Role, &mustChange, &u.CreatedAt, &u.UpdatedAt, &lastLogin); err != nil {
 			return nil, err
 		}
-		scanUserRow(&u, &mustChange, &lastLogin, &daily)
+		u.MustChangePassword = mustChange == 1
+		if lastLogin.Valid {
+			u.LastLoginAt = lastLogin.String
+		}
 		list = append(list, u)
 	}
 	return list, rows.Err()
@@ -249,82 +240,6 @@ func UpdateUserRole(userID int64, role string) error {
 	return err
 }
 
-func UpdateUserDailyPullLimit(userID int64, limit int) error {
-	if limit < 0 {
-		return fmt.Errorf("daily pull limit cannot be negative")
-	}
-	// 0 = unlimited
-	_, err := DB.Exec(`UPDATE users SET daily_pull_limit = ?, updated_at = ? WHERE id = ?`, limit, Now(), userID)
-	return err
-}
-
-func GetUserDailyPullLimit(userID int64) (int, error) {
-	var limit int
-	err := DB.QueryRow(`SELECT COALESCE(daily_pull_limit, 30) FROM users WHERE id = ?`, userID).Scan(&limit)
-	if err != nil {
-		return DefaultDailyPullLimit, err
-	}
-	return limit, nil
-}
-
-// local day bounds in Asia/Shanghai (UTC+8) for "zero o'clock" refresh.
-func localDayBoundsUTC() (startUTC, endUTC string) {
-	loc := time.FixedZone("CST", 8*3600)
-	now := time.Now().In(loc)
-	start := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, loc)
-	end := start.Add(24 * time.Hour)
-	return start.UTC().Format(time.RFC3339Nano), end.UTC().Format(time.RFC3339Nano)
-}
-
-func CountPullsByUserToday(userID int64) (int, error) {
-	start, end := localDayBoundsUTC()
-	var n int
-	err := DB.QueryRow(
-		`SELECT COUNT(*) FROM pull_sessions WHERE user_id = ? AND started_at >= ? AND started_at < ?`,
-		userID, start, end,
-	).Scan(&n)
-	return n, err
-}
-
-type UserPullQuota struct {
-	DailyLimit  int    `json:"daily_limit"`
-	UsedToday   int    `json:"used_today"`
-	Remaining   int    `json:"remaining"`
-	Unlimited   bool   `json:"unlimited"`
-	ResetAt     string `json:"reset_at"` // next local midnight ISO
-	Timezone    string `json:"timezone"`
-}
-
-func GetUserPullQuota(userID int64) (*UserPullQuota, error) {
-	limit, err := GetUserDailyPullLimit(userID)
-	if err != nil {
-		return nil, err
-	}
-	used, err := CountPullsByUserToday(userID)
-	if err != nil {
-		return nil, err
-	}
-	loc := time.FixedZone("CST", 8*3600)
-	now := time.Now().In(loc)
-	next := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, loc).Add(24 * time.Hour)
-	q := &UserPullQuota{
-		DailyLimit: limit,
-		UsedToday:  used,
-		Timezone:   "Asia/Shanghai",
-		ResetAt:    next.Format(time.RFC3339),
-	}
-	if limit <= 0 {
-		q.Unlimited = true
-		q.Remaining = -1
-	} else {
-		q.Remaining = limit - used
-		if q.Remaining < 0 {
-			q.Remaining = 0
-		}
-	}
-	return q, nil
-}
-
 func DeleteUser(userID int64) error {
 	var role string
 	if err := DB.QueryRow(`SELECT role FROM users WHERE id = ?`, userID).Scan(&role); err != nil {
@@ -365,19 +280,6 @@ func GenerateToken() (string, error) {
 }
 
 func CreateSession(userID int64, ip, userAgent string) (rawToken string, session *Session, err error) {
-	// cap concurrent sessions per user
-	var n int
-	_ = DB.QueryRow(`SELECT COUNT(*) FROM sessions WHERE user_id = ? AND expires_at > ?`, userID, Now()).Scan(&n)
-	if n >= MaxSessionsPerUser {
-		// delete oldest sessions beyond limit-1
-		_, _ = DB.Exec(
-			`DELETE FROM sessions WHERE id IN (
-				SELECT id FROM sessions WHERE user_id = ? ORDER BY created_at ASC LIMIT ?
-			)`,
-			userID, n-MaxSessionsPerUser+1,
-		)
-	}
-
 	rawToken, err = GenerateToken()
 	if err != nil {
 		return "", nil, err

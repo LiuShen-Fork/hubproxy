@@ -1,34 +1,24 @@
 <script setup lang="ts">
 import { onMounted, onUnmounted, ref } from 'vue'
-import { Activity, Gauge, HardDrive, Network, Package } from 'lucide-vue-next'
+import { Activity, HardDrive, Network, Package } from 'lucide-vue-next'
 import Card from '@/components/ui/Card.vue'
 import CardContent from '@/components/ui/CardContent.vue'
 import CardHeader from '@/components/ui/CardHeader.vue'
 import CardTitle from '@/components/ui/CardTitle.vue'
 import Badge from '@/components/ui/Badge.vue'
-import { adminApi, formatBytes, formatTime, type DashboardStats, type UserPullQuota } from '../api'
+import { adminApi, formatBytes, formatTime, type DashboardStats } from '../api'
 
 const stats = ref<DashboardStats | null>(null)
-const quota = ref<UserPullQuota | null>(null)
 const error = ref('')
 let timer: number | undefined
 
 async function load() {
   try {
-    const res = await adminApi.userDashboard(14)
-    stats.value = res.stats
-    quota.value = res.quota
+    stats.value = await adminApi.userDashboard(14)
     error.value = ''
   } catch (e: any) {
     error.value = e?.message || '加载失败'
   }
-}
-
-function formatReset(iso?: string) {
-  if (!iso) return '-'
-  const d = new Date(iso)
-  if (Number.isNaN(d.getTime())) return iso
-  return d.toLocaleString()
 }
 
 onMounted(() => {
@@ -43,26 +33,6 @@ onUnmounted(() => {
 <template>
   <div class="space-y-6">
     <p v-if="error" class="text-sm text-destructive">{{ error }}</p>
-
-    <div v-if="quota" class="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-      <Card class="sm:col-span-2">
-        <CardContent class="flex items-start justify-between pt-5">
-          <div>
-            <div class="text-sm text-muted-foreground">今日拉取配额</div>
-            <div class="mt-1 font-display text-3xl font-semibold">
-              <template v-if="quota.unlimited">不限</template>
-              <template v-else>{{ quota.remaining }} <span class="text-lg text-muted-foreground">/ {{ quota.daily_limit }}</span></template>
-            </div>
-            <div class="mt-1 text-xs text-muted-foreground">
-              已用 {{ quota.used_today }} 次 · 每日 0 点刷新（{{ quota.timezone }}）
-              · 下次刷新 {{ formatReset(quota.reset_at) }}
-            </div>
-          </div>
-          <div class="rounded-lg bg-primary/10 p-2 text-primary"><Gauge class="size-5" /></div>
-        </CardContent>
-      </Card>
-    </div>
-
     <div v-if="stats" class="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
       <Card>
         <CardContent class="flex items-start justify-between pt-5">

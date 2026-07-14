@@ -70,27 +70,6 @@ async function renameUser(u: User) {
   }
 }
 
-async function setDailyLimit(u: User) {
-  const cur = u.daily_pull_limit ?? 30
-  const input = prompt(
-    `设置 ${u.username} 的每日拉取上限（完整镜像次数，0=不限，默认 30）`,
-    String(cur),
-  )
-  if (input == null) return
-  const n = Number(input)
-  if (!Number.isFinite(n) || n < 0 || !Number.isInteger(n)) {
-    err.value = '请输入非负整数'
-    return
-  }
-  try {
-    await adminApi.updateUser(u.id, { daily_pull_limit: n })
-    msg.value = n === 0 ? '已设为不限' : `每日限额已设为 ${n}`
-    await load()
-  } catch (e: any) {
-    err.value = e?.message || '设置失败'
-  }
-}
-
 onMounted(load)
 </script>
 
@@ -133,7 +112,6 @@ onMounted(load)
               <th class="pb-2">ID</th>
               <th class="pb-2">用户名</th>
               <th class="pb-2">角色</th>
-              <th class="pb-2">日限额</th>
               <th class="pb-2">最近登录</th>
               <th class="pb-2"></th>
             </tr>
@@ -146,15 +124,9 @@ onMounted(load)
                 <Badge v-if="u.must_change_password" variant="danger" class="ml-2">需改密</Badge>
               </td>
               <td class="py-2"><Badge :variant="u.role === 'admin' ? 'default' : 'secondary'">{{ u.role }}</Badge></td>
-              <td class="py-2">
-                <button type="button" class="text-primary underline-offset-2 hover:underline" @click="setDailyLimit(u)">
-                  {{ (u.daily_pull_limit ?? 30) === 0 ? '不限' : (u.daily_pull_limit ?? 30) + ' 次/日' }}
-                </button>
-              </td>
               <td class="py-2">{{ formatTime(u.last_login_at) }}</td>
               <td class="py-2 space-x-2">
                 <Button size="sm" variant="ghost" @click="renameUser(u)">改名</Button>
-                <Button size="sm" variant="ghost" @click="setDailyLimit(u)">限流</Button>
                 <Button size="sm" variant="ghost" @click="resetPwd(u)">重置密码</Button>
                 <Button size="sm" variant="outline" :disabled="u.id === me?.id" @click="remove(u.id)">删除</Button>
               </td>

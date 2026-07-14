@@ -14,7 +14,7 @@ const (
 	ctxUserKey   = "auth_user"
 	ctxSessionID = "auth_session_id"
 	loginWindow  = 15 * time.Minute
-	maxFailures  = 5 // stricter lockout
+	maxFailures  = 10
 )
 
 func extractBearer(c *gin.Context) string {
@@ -30,33 +30,14 @@ func extractBearer(c *gin.Context) string {
 
 func setSessionCookie(c *gin.Context, token string) {
 	secure := c.Request.TLS != nil || strings.EqualFold(c.GetHeader("X-Forwarded-Proto"), "https")
-	// Strict + HttpOnly + Secure(when HTTPS) + path-limited
-	c.SetSameSite(http.SameSiteStrictMode)
+	c.SetSameSite(http.SameSiteLaxMode)
 	c.SetCookie(cookieName, token, int(db.SessionTTL.Seconds()), "/api/admin", "", secure, true)
 }
 
 func clearSessionCookie(c *gin.Context) {
 	secure := c.Request.TLS != nil || strings.EqualFold(c.GetHeader("X-Forwarded-Proto"), "https")
-	c.SetSameSite(http.SameSiteStrictMode)
+	c.SetSameSite(http.SameSiteLaxMode)
 	c.SetCookie(cookieName, "", -1, "/api/admin", "", secure, true)
-}
-
-// SecurityHeadersMiddleware adds baseline browser security headers for console pages/API.
-func SecurityHeadersMiddleware() gin.HandlerFunc {
-	return func(c *gin.Context) {
-		c.Header("X-Content-Type-Options", "nosniff")
-		c.Header("X-Frame-Options", "DENY")
-		c.Header("Referrer-Policy", "no-referrer")
-		c.Header("Permissions-Policy", "geolocation=(), microphone=(), camera=()")
-		// Avoid indexing admin/console/token paths
-		path := c.Request.URL.Path
-		if strings.HasPrefix(path, "/api/admin") || strings.HasPrefix(path, "/admin") {
-			c.Header("Cache-Control", "no-store, no-cache, must-revalidate, private")
-			c.Header("Pragma", "no-cache")
-			c.Header("X-Robots-Tag", "noindex, nofollow, noarchive")
-		}
-		c.Next()
-	}
 }
 
 func AuthRequired() gin.HandlerFunc {
@@ -131,17 +112,11 @@ func AuthLogin(c *gin.Context) {
 		return
 	}
 
-	username := strings.TrimSpace(req.Username)
-	if len(username) > 64 || len(req.Password) > 128 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "参数无效"})
-		return
-	}
-
-	user, hash, err := db.GetUserByUsername(username)
+	user, hash, err := db.GetUserByUsername(req.Username)
 	if err != nil || !db.CheckPassword(hash, req.Password) {
-		_ = db.RecordLoginAttempt(ip, username, false)
-		// constant-ish delay against timing / brute force
-		time.Sleep(300 * time.Millisecond)
+		_ = db.RecordLoginAttempt(ip, req.Username, false)
+		// constant-ish delay against timing
+		time.Sleep(200 * time.Millisecond)
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "用户名或密码错误"})
 		return
 	}

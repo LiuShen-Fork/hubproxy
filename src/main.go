@@ -58,9 +58,6 @@ func serveEmbedFile(c *gin.Context, filename string) {
 }
 
 func serveSPA(c *gin.Context) {
-	// prevent search engines / scrapers from indexing console shell
-	c.Header("X-Robots-Tag", "noindex, nofollow, noarchive")
-	c.Header("Referrer-Policy", "no-referrer")
 	serveEmbedFile(c, "dist/index.html")
 }
 
@@ -118,15 +115,11 @@ func buildRouter(cfg *config.AppConfig) *gin.Engine {
 		// Gin will still hit NoRoute for unmatched routes — handled below.
 	})
 
-	router.Use(handlers.SecurityHeadersMiddleware())
 	router.Use(utils.RateLimitMiddleware(globalLimiter))
 	// registry-mirrors: https://host/TOKEN → /TOKEN/v2/... rewrite
 	router.Use(handlers.NormalizeMirrorTokenPath())
-	// site access key gate (UI only; docker pulls never blocked)
-	router.Use(handlers.SiteGateMiddleware())
 
 	initHealthRoutes(router)
-	router.GET("/gate/:key", handlers.SiteGateUnlock)
 	handlers.InitImageTarRoutes(router)
 	handlers.RegisterAdminRoutes(router)
 	registerFrontendRoutes(router, cfg.Server.EnableFrontend)
@@ -233,9 +226,6 @@ func main() {
 	}
 	fmt.Printf("版本号: %s\n", Version)
 	fmt.Printf("清羽镜像 · 清羽飞扬自建多源镜像（仅供自用）\n")
-	if k := strings.TrimSpace(cfg.Server.SiteAccessKey); k != "" {
-		fmt.Printf("站点访问密钥已启用，浏览器请先打开: /gate/%s\n", k)
-	}
 
 	server := &http.Server{
 		Addr:         fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port),

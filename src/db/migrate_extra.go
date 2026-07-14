@@ -137,16 +137,6 @@ func ensureColumns() error {
 			return err
 		}
 	}
-
-	ucols, err := tableColumns("users")
-	if err != nil {
-		return err
-	}
-	if !ucols["daily_pull_limit"] {
-		if _, err := DB.Exec(`ALTER TABLE users ADD COLUMN daily_pull_limit INTEGER NOT NULL DEFAULT 30`); err != nil {
-			return err
-		}
-	}
 	return nil
 }
 

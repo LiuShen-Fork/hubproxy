@@ -17,11 +17,7 @@ func UserDashboard(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-	quota, _ := db.GetUserPullQuota(u.ID)
-	c.JSON(http.StatusOK, gin.H{
-		"stats": stats,
-		"quota": quota,
-	})
+	c.JSON(http.StatusOK, stats)
 }
 
 func UserListPulls(c *gin.Context) {
