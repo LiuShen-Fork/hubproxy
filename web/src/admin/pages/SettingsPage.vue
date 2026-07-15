@@ -31,7 +31,6 @@ async function load() {
       full_name: '',
       tagline: '',
       description: '',
-      author_home: '',
       icp_text: '',
       police_text: '',
       announcement: '',
@@ -210,10 +209,6 @@ onMounted(async () => {
         <div class="space-y-2 sm:col-span-2">
           <Label>描述</Label>
           <Input v-model="settings.site.description" />
-        </div>
-        <div class="space-y-2 sm:col-span-2">
-          <Label>作者主页 URL（页脚「作者主页」）</Label>
-          <Input v-model="(settings.site as any).author_home" placeholder="https://..." />
         </div>
         <div class="space-y-2">
           <Label>ICP 备案号</Label>

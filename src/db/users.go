@@ -91,10 +91,32 @@ func CheckPassword(hash, password string) bool {
 	return bcrypt.CompareHashAndPassword([]byte(hash), []byte(password)) == nil
 }
 
+func ValidateUsername(username string) error {
+	username = strings.TrimSpace(username)
+	if username == "" || len(username) < 2 || len(username) > 32 {
+		return fmt.Errorf("用户名长度需为 2-32 个字符")
+	}
+	for _, r := range username {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '_' || r == '-' {
+			continue
+		}
+		return fmt.Errorf("用户名仅允许字母、数字、下划线和连字符")
+	}
+	// block reserved names
+	lower := strings.ToLower(username)
+	if lower == "admin" || lower == "root" || lower == "system" || lower == "administrator" {
+		return fmt.Errorf("该用户名为系统保留")
+	}
+	return nil
+}
+
 func CreateUser(username, password, role string) (*User, error) {
 	username = strings.TrimSpace(username)
-	if username == "" || len(password) < 8 {
-		return nil, fmt.Errorf("invalid username or password too short")
+	if err := ValidateUsername(username); err != nil {
+		return nil, err
+	}
+	if len(password) < 8 || len(password) > 128 {
+		return nil, fmt.Errorf("密码长度需为 8-128 位")
 	}
 	if role != RoleAdmin && role != RoleUser {
 		role = RoleUser
@@ -225,14 +247,20 @@ func UpdatePassword(userID int64, newPassword string) error {
 
 func UpdateUsername(userID int64, username string) error {
 	username = strings.TrimSpace(username)
-	if username == "" || len(username) < 2 || len(username) > 32 {
-		return fmt.Errorf("用户名长度需为 2-32 个字符")
-	}
-	for _, r := range username {
-		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '_' || r == '-' {
-			continue
+	if err := ValidateUsername(username); err != nil {
+		// allow keeping "admin" for the existing default admin account rename checks
+		// ValidateUsername blocks "admin" — only enforce charset/length for rename of non-reserved
+		if strings.ToLower(username) == "admin" {
+			// permit if this user is already named admin
+			var cur string
+			if e := DB.QueryRow(`SELECT username FROM users WHERE id = ?`, userID).Scan(&cur); e == nil && strings.EqualFold(cur, "admin") {
+				// ok
+			} else {
+				return err
+			}
+		} else {
+			return err
 		}
-		return fmt.Errorf("用户名仅允许字母、数字、下划线和连字符")
 	}
 	var existingID int64
 	err := DB.QueryRow(`SELECT id FROM users WHERE username = ? COLLATE NOCASE AND id != ?`, username, userID).Scan(&existingID)
@@ -384,6 +412,16 @@ func CountRecentLoginFailures(ip string, window time.Duration) (int, error) {
 	err := DB.QueryRow(
 		`SELECT COUNT(*) FROM login_attempts WHERE ip = ? AND success = 0 AND created_at >= ?`,
 		ip, since,
+	).Scan(&n)
+	return n, err
+}
+
+func CountRecentLoginFailuresByUsername(username string, window time.Duration) (int, error) {
+	since := time.Now().UTC().Add(-window).Format(time.RFC3339Nano)
+	var n int
+	err := DB.QueryRow(
+		`SELECT COUNT(*) FROM login_attempts WHERE username = ? COLLATE NOCASE AND success = 0 AND created_at >= ?`,
+		strings.TrimSpace(username), since,
 	).Scan(&n)
 	return n, err
 }

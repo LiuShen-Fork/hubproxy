@@ -25,6 +25,8 @@ const (
 	FixedPoliceURL = "https://beian.mps.gov.cn/#/query/webSearch?code="
 	ProjectGitHub  = "https://github.com/LiuShen-Fork/hubproxy"
 	ProjectName    = "HubProxy"
+	// AuthorHomeURL is fixed project/author attribution (not admin-configurable).
+	AuthorHomeURL = "https://www.liushen.fun/"
 )
 
 type RateLimitSettings struct {
@@ -73,7 +75,6 @@ type SiteSettings struct {
 	FullName     string `json:"full_name"`
 	Tagline      string `json:"tagline"`
 	Description  string `json:"description"`
-	AuthorHome   string `json:"author_home"` // fixed display link label uses HubProxy project
 	ICPText      string `json:"icp_text"`
 	PoliceText   string `json:"police_text"`
 	Announcement string `json:"announcement"` // HTML, empty = no popup
@@ -108,7 +109,6 @@ func DefaultSiteSettings() SiteSettings {
 		FullName:     "自建多源镜像",
 		Tagline:      "",
 		Description:  "多源镜像加速服务，支持 Docker、GitHub、Hugging Face。",
-		AuthorHome:   "https://www.liushen.fun/",
 		ICPText:      "",
 		PoliceText:   "",
 		Announcement: "",
@@ -379,16 +379,6 @@ func LoadSite() SiteSettings {
 	if s.FullName == "" {
 		s.FullName = def.FullName
 	}
-	// migrate old fields if present via raw map
-	var raw map[string]any
-	if GetSetting(KeySite, &raw) == nil {
-		if s.AuthorHome == "" {
-			if v, ok := raw["home_url"].(string); ok {
-				s.AuthorHome = v
-			}
-		}
-		// strip legacy owner/blog from public use
-	}
 	return s
 }
 
@@ -463,7 +453,7 @@ func (s SiteSettings) PublicSiteView() map[string]any {
 		"full_name":    s.FullName,
 		"tagline":      s.Tagline,
 		"description":  s.Description,
-		"author_home":  s.AuthorHome,
+		"author_home":  AuthorHomeURL,
 		"project_name": ProjectName,
 		"project_url":  ProjectGitHub,
 		"icp_text":     s.ICPText,
