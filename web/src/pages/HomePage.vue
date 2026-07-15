@@ -2,7 +2,6 @@
 import { computed, ref } from 'vue'
 import { RouterLink } from 'vue-router'
 import {
-  BookOpen,
   Check,
   Clipboard,
   Container,
@@ -192,12 +191,6 @@ function onOpen() {
             搜索镜像
           </Button>
         </RouterLink>
-        <a :href="site.blog" target="_blank" rel="noopener noreferrer">
-          <Button variant="outline">
-            <BookOpen class="size-4" />
-            站长博客
-          </Button>
-        </a>
       </div>
     </PageHero>
 

@@ -5,18 +5,20 @@ import Input from '@/components/ui/Input.vue'
 import Card from '@/components/ui/Card.vue'
 import CardContent from '@/components/ui/CardContent.vue'
 import Badge from '@/components/ui/Badge.vue'
+import DataTable from '@/components/ui/DataTable.vue'
 import { adminApi, formatBytes, formatTime, type PullSession } from '../api'
 
 const items = ref<PullSession[]>([])
 const total = ref(0)
 const page = ref(1)
+const pageSize = 20
 const ip = ref('')
 const image = ref('')
 
 async function load() {
   const res = await adminApi.userPulls({
     page: page.value,
-    page_size: 20,
+    page_size: pageSize,
     ip: ip.value,
     image: image.value,
   })
@@ -26,7 +28,6 @@ async function load() {
 
 onMounted(load)
 watch(page, load)
-const pages = () => Math.max(1, Math.ceil(total.value / 20))
 </script>
 
 <template>
@@ -35,41 +36,41 @@ const pages = () => Math.max(1, Math.ceil(total.value / 20))
       <CardContent class="grid gap-3 pt-5 md:grid-cols-3">
         <Input v-model="ip" placeholder="按 IP 筛选" />
         <Input v-model="image" placeholder="按镜像筛选" />
-        <Button @click="page = 1; load()">查询</Button>
+        <Button class="rounded-xl" @click="page = 1; load()">查询</Button>
       </CardContent>
     </Card>
     <Card>
-      <CardContent class="overflow-x-auto pt-5">
-        <table class="w-full text-sm">
-          <thead class="text-left text-muted-foreground">
+      <CardContent class="pt-5">
+        <DataTable
+          v-model:page="page"
+          min-width="640px"
+          max-height="28rem"
+          :paginate="total > pageSize"
+          :total="total"
+          :page-size="pageSize"
+        >
+          <template #head>
             <tr>
-              <th class="pb-2">时间</th>
-              <th class="pb-2">镜像</th>
-              <th class="pb-2">Registry</th>
-              <th class="pb-2">IP</th>
-              <th class="pb-2">流量</th>
-              <th class="pb-2">状态</th>
+              <th class="px-3 py-2.5 font-medium whitespace-nowrap">时间</th>
+              <th class="px-3 py-2.5 font-medium">镜像</th>
+              <th class="px-3 py-2.5 font-medium">Registry</th>
+              <th class="px-3 py-2.5 font-medium whitespace-nowrap">IP</th>
+              <th class="px-3 py-2.5 font-medium whitespace-nowrap">流量</th>
+              <th class="px-3 py-2.5 font-medium whitespace-nowrap">状态</th>
             </tr>
-          </thead>
-          <tbody>
-            <tr v-for="p in items" :key="p.id" class="border-t border-border">
-              <td class="py-2 whitespace-nowrap">{{ formatTime(p.started_at) }}</td>
-              <td class="py-2">{{ p.image_name }}:{{ p.tag }}</td>
-              <td class="py-2">{{ p.registry }}</td>
-              <td class="py-2 font-mono text-xs">{{ p.client_ip }}</td>
-              <td class="py-2">{{ formatBytes(p.bytes_total) }}</td>
-              <td class="py-2"><Badge variant="outline">{{ p.status }}</Badge></td>
-            </tr>
-          </tbody>
-        </table>
-        <div class="mt-4 flex items-center justify-between text-sm">
-          <span class="text-muted-foreground">共 {{ total }} 条</span>
-          <div class="flex gap-2">
-            <Button size="sm" variant="outline" :disabled="page <= 1" @click="page--">上一页</Button>
-            <span class="px-2 py-1">{{ page }} / {{ pages() }}</span>
-            <Button size="sm" variant="outline" :disabled="page >= pages()" @click="page++">下一页</Button>
-          </div>
-        </div>
+          </template>
+          <tr v-for="p in items" :key="p.id" class="border-t border-border/70">
+            <td class="px-3 py-2.5 whitespace-nowrap">{{ formatTime(p.started_at) }}</td>
+            <td class="max-w-[12rem] truncate px-3 py-2.5" :title="`${p.image_name}:${p.tag}`">
+              {{ p.image_name }}:{{ p.tag }}
+            </td>
+            <td class="max-w-[8rem] truncate px-3 py-2.5" :title="p.registry">{{ p.registry }}</td>
+            <td class="px-3 py-2.5 font-mono text-xs whitespace-nowrap">{{ p.client_ip }}</td>
+            <td class="px-3 py-2.5 whitespace-nowrap">{{ formatBytes(p.bytes_total) }}</td>
+            <td class="px-3 py-2.5 whitespace-nowrap"><Badge variant="outline">{{ p.status }}</Badge></td>
+          </tr>
+        </DataTable>
+        <p v-if="!items.length" class="py-6 text-center text-sm text-muted-foreground">暂无记录</p>
       </CardContent>
     </Card>
   </div>

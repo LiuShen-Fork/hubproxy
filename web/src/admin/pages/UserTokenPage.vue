@@ -10,50 +10,61 @@ import CardTitle from '@/components/ui/CardTitle.vue'
 import Badge from '@/components/ui/Badge.vue'
 import { adminApi } from '../api'
 import { copyText } from '@/lib/utils'
+import { toastError, toastSuccess } from '@/lib/toast'
 
 const token = ref('')
 const examples = ref<Record<string, string>>({})
 const notes = ref<string[]>([])
 const requireToken = ref(true)
-const msg = ref('')
-const err = ref('')
 const host = computed(() => window.location.host)
 
 async function load() {
   const res = await adminApi.userToken()
   token.value = res.token?.token || ''
   examples.value = res.examples || {}
-  requireToken.value = res.require_token
+  // require_token = 必须令牌 = 未开公共镜像（与管理员 public_mirror 相反）
+  if (typeof res.public_mirror === 'boolean') {
+    requireToken.value = !res.public_mirror
+  } else {
+    requireToken.value = !!res.require_token
+  }
   const guide = await adminApi.userGuide()
   notes.value = guide.notes || []
   if (guide.examples) examples.value = guide.examples
+  if (typeof guide.public_mirror === 'boolean') {
+    requireToken.value = !guide.public_mirror
+  } else if (typeof guide.require_token === 'boolean') {
+    requireToken.value = guide.require_token
+  }
 }
 
 async function reset() {
-  if (!confirm('重置后旧令牌立即失效且不可复用，确认？')) return
-  const res = await adminApi.resetUserToken()
-  token.value = res.token?.token || ''
-  examples.value = res.examples || {}
-  msg.value = res.message || '已重置'
+  if (!window.confirm('重置后旧令牌立即失效且不可复用，确认？')) return
+  try {
+    const res = await adminApi.resetUserToken()
+    token.value = res.token?.token || ''
+    examples.value = res.examples || {}
+    toastSuccess(res.message || '已重置')
+  } catch (e: any) {
+    toastError(e?.message || '重置失败')
+  }
 }
 
 async function copy(text: string) {
-  if (await copyText(text)) msg.value = '已复制'
+  if (await copyText(text)) toastSuccess('已复制')
 }
 
 onMounted(async () => {
   try {
     await load()
   } catch (e: any) {
-    err.value = e?.message || '加载失败'
+    toastError(e?.message || '加载失败')
   }
 })
 </script>
 
 <template>
   <div class="space-y-4">
-    <p v-if="msg" class="text-sm text-emerald-600">{{ msg }}</p>
-    <p v-if="err" class="text-sm text-destructive">{{ err }}</p>
 
     <Card>
       <CardHeader>
@@ -72,7 +83,7 @@ onMounted(async () => {
           </div>
         </div>
         <Badge :variant="requireToken ? 'default' : 'secondary'">
-          {{ requireToken ? '当前强制使用令牌路径' : '当前允许无令牌拉取（管理员可改）' }}
+          {{ requireToken ? '当前强制使用令牌路径（公共镜像已关闭）' : '当前允许无令牌拉取（公共镜像已开启）' }}
         </Badge>
       </CardContent>
     </Card>

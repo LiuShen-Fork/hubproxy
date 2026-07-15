@@ -144,25 +144,20 @@ func FindActivePullSession(ip, imageName, registry string, userID int64) (*PullS
 	return &s, nil
 }
 
-// isTagManifestRequest is a client asking for an image by tag (start of a real pull),
-// not a bare digest-only probe.
-func isTagManifestRequest(eventType, tag string) bool {
-	if eventType != "manifests" && eventType != "manifest" {
-		return false
-	}
-	if tag == "" || tag == "digest" {
-		return false
-	}
-	return !strings.HasPrefix(tag, "sha256:")
+func isManifestEvent(eventType string) bool {
+	return eventType == "manifests" || eventType == "manifest" || eventType == "manifest_head"
 }
 
-// FindOrCreatePullSession groups registry requests into one logical pull.
-// Counting (quota/stats) only happens later when the first blob layer is downloaded
-// (see MarkSessionCountedIfNeeded). Manifest-only probes do not consume quota.
-//
-// eventType: "manifests" | "blobs" | ...
-// If an active session already has layers and a new tag-manifest arrives after RePullGapSeconds,
-// a new session is opened so a second docker pull counts separately.
+func isBlobEvent(eventType string) bool {
+	return eventType == "blobs" || eventType == "blob"
+}
+
+// FindOrCreatePullSession implements pull cycle:
+//  1. First manifest → open uncounted session (tracking only)
+//  2. Blobs attach to that session; first successful blob → count +1, cycle "closed" for counting
+//  3. More blobs of same pull still attach while session active
+//  4. Next manifest after already counted (layer_count>0) → complete old, open NEW cycle
+//  5. Manifest-only with no blob is deleted after ManifestProbeSeconds (see CleanupManifestProbes)
 func FindOrCreatePullSession(ip, imageName, registry, tag, eventType string, userID int64, accessToken string) (*PullSession, bool, error) {
 	if tag == "" {
 		tag = "latest"
@@ -171,25 +166,21 @@ func FindOrCreatePullSession(ip, imageName, registry, tag, eventType string, use
 		registry = "docker.io"
 	}
 	category := ImageCategory(imageName)
-	cfg := LoadPullSession()
-	gap := time.Duration(cfg.RePullGapSeconds) * time.Second
-	if gap <= 0 {
-		gap = 2 * time.Minute
-	}
 
 	s, err := FindActivePullSession(ip, imageName, registry, userID)
 	if err != nil {
 		return nil, false, err
 	}
-	if s != nil {
-		// Second pull: session already pulled layers, idle for gap, new tag manifest → new session
-		if s.LayerCount > 0 && isTagManifestRequest(eventType, tag) {
-			if last, err := ParseTime(s.LastSeenAt); err == nil && time.Since(last) >= gap {
-				_ = CompletePullSession(s.ID, "completed")
-				s = nil
-			}
-		}
+
+	// Already counted this cycle → any new manifest starts a fresh cycle (second docker pull).
+	// Digest manifests after first blob still belong to same pull (multi-arch follow-up is rare post-blob;
+	// if tag/digest manifest after layers, treat as new pull intent).
+	if s != nil && s.LayerCount > 0 && isManifestEvent(eventType) {
+		_ = CompletePullSession(s.ID, "completed")
+		s = nil
 	}
+
+	// Blob with no open uncounted/active session: open one (resume / race)
 	if s != nil {
 		now := Now()
 		if tag != "" && tag != "digest" && !strings.HasPrefix(tag, "sha256:") &&
@@ -229,7 +220,6 @@ func FindOrCreatePullSession(ip, imageName, registry, tag, eventType string, use
 	if err != nil {
 		return nil, false, err
 	}
-	// Do NOT count toward daily quota / daily_stats until first blob layer arrives.
 
 	return &PullSession{
 		ID:           id,
@@ -404,41 +394,59 @@ func RecordPullEvent(sessionID, eventType, reference string, bytes int64, status
 		return err
 	}
 
-	isBlob := eventType == "blob" || eventType == "blobs"
-	// Successful blob with body (or known size) counts as a real layer pull
-	countAsLayer := isBlob && statusCode >= 200 && statusCode < 300 && (bytes > 0 || statusCode == 200)
+	isBlob := isBlobEvent(eventType)
+	// Any successful blob response counts as a layer for this pull cycle
+	countAsLayer := isBlob && statusCode >= 200 && statusCode < 400
 
 	if bytes > 0 || countAsLayer {
-		var prevLayers int
-		_ = DB.QueryRow(`SELECT layer_count FROM pull_sessions WHERE id = ?`, sessionID).Scan(&prevLayers)
-
-		if bytes > 0 {
+		// Atomic: only first layer bumps daily pull count
+		if countAsLayer {
+			res, err2 := DB.Exec(
+				`UPDATE pull_sessions SET
+				   bytes_total = bytes_total + ?,
+				   layer_count = layer_count + 1,
+				   last_seen_at = ?
+				 WHERE id = ? AND layer_count = 0`,
+				bytes, now, sessionID,
+			)
+			if err2 != nil {
+				return err2
+			}
+			if n, _ := res.RowsAffected(); n > 0 {
+				// first blob of this cycle → count once
+				_ = bumpDailyPull(now[:10])
+				if bytes > 0 {
+					_ = bumpDailyBytes(now[:10], bytes)
+				}
+				return nil
+			}
+			// already counted: just add traffic / layer stats
 			_, err = DB.Exec(
 				`UPDATE pull_sessions SET
 				   bytes_total = bytes_total + ?,
-				   layer_count = CASE WHEN ? THEN layer_count + 1 ELSE layer_count END,
-				   last_seen_at = ?
-				 WHERE id = ?`,
-				bytes, countAsLayer, now, sessionID,
-			)
-		} else {
-			_, err = DB.Exec(
-				`UPDATE pull_sessions SET
 				   layer_count = layer_count + 1,
 				   last_seen_at = ?
 				 WHERE id = ?`,
-				now, sessionID,
+				bytes, now, sessionID,
 			)
+			if err != nil {
+				return err
+			}
+			if bytes > 0 {
+				_ = bumpDailyBytes(now[:10], bytes)
+			}
+			return nil
 		}
+		// non-blob with bytes (e.g. manifest body)
+		_, err = DB.Exec(
+			`UPDATE pull_sessions SET bytes_total = bytes_total + ?, last_seen_at = ? WHERE id = ?`,
+			bytes, now, sessionID,
+		)
 		if err != nil {
 			return err
 		}
 		if bytes > 0 {
 			_ = bumpDailyBytes(now[:10], bytes)
-		}
-		// First layer: this session becomes a countable pull
-		if countAsLayer && prevLayers == 0 {
-			_ = bumpDailyPull(now[:10])
 		}
 	} else {
 		_, _ = DB.Exec(`UPDATE pull_sessions SET last_seen_at = ? WHERE id = ?`, now, sessionID)
@@ -463,10 +471,33 @@ func ExpireIdlePullSessions() error {
 	idle := time.Duration(cfg.IdleMinutes) * time.Minute
 	cutoff := time.Now().UTC().Add(-idle).Format(time.RFC3339Nano)
 	now := Now()
+	// Only expire sessions that already counted (have layers); probes cleaned separately
 	_, err := DB.Exec(
 		`UPDATE pull_sessions SET status = 'completed', completed_at = ?
-		 WHERE status = 'active' AND last_seen_at < ?`,
+		 WHERE status = 'active' AND layer_count > 0 AND last_seen_at < ?`,
 		now, cutoff,
+	)
+	return err
+}
+
+// CleanupManifestProbes removes sessions that only saw manifest (no blob) after probe timeout.
+func CleanupManifestProbes() error {
+	cfg := LoadPullSession()
+	sec := cfg.ManifestProbeSeconds
+	if sec <= 0 {
+		sec = 60
+	}
+	cutoff := time.Now().UTC().Add(-time.Duration(sec) * time.Second).Format(time.RFC3339Nano)
+	// delete events first if any (usually none for pure probe)
+	_, _ = DB.Exec(
+		`DELETE FROM pull_events WHERE pull_session_id IN (
+			SELECT id FROM pull_sessions WHERE status = 'active' AND layer_count = 0 AND last_seen_at < ?
+		)`,
+		cutoff,
+	)
+	_, err := DB.Exec(
+		`DELETE FROM pull_sessions WHERE status = 'active' AND layer_count = 0 AND last_seen_at < ?`,
+		cutoff,
 	)
 	return err
 }

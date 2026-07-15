@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue'
-import { useRouter } from 'vue-router'
+import { onMounted, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import Button from '@/components/ui/Button.vue'
 import Input from '@/components/ui/Input.vue'
 import Label from '@/components/ui/Label.vue'
@@ -8,10 +8,13 @@ import Card from '@/components/ui/Card.vue'
 import CardContent from '@/components/ui/CardContent.vue'
 import CardHeader from '@/components/ui/CardHeader.vue'
 import CardTitle from '@/components/ui/CardTitle.vue'
-import { adminApi, setToken } from '../api'
+import Badge from '@/components/ui/Badge.vue'
+import { adminApi, getToken, setToken } from '../api'
 import { useAuth } from '../auth'
+import { toastError, toastSuccess } from '@/lib/toast'
 
 const router = useRouter()
+const route = useRoute()
 const { user, setUser } = useAuth()
 const username = ref(user.value?.username || '')
 const current = ref('')
@@ -20,6 +23,9 @@ const confirm = ref('')
 const error = ref('')
 const msg = ref('')
 const loading = ref(false)
+const oauthBindEnabled = ref(false)
+const oauthLabel = ref('绑定第三方账号')
+const bindings = ref<Array<{ id: number; provider: string; subject: string; email?: string; display_name?: string }>>([])
 
 watch(
   () => user.value?.username,
@@ -27,6 +33,48 @@ watch(
     if (v) username.value = v
   },
 )
+
+async function loadOAuth() {
+  try {
+    const cfg = await adminApi.publicConfig()
+    // OAuth 启用后即可绑定，无需单独开关
+    oauthBindEnabled.value = !!(cfg.oauth?.enabled || cfg.oauth_bind_enabled)
+    if (cfg.oauth?.display_name) oauthLabel.value = `绑定 ${cfg.oauth.display_name}`
+  } catch {
+    /* ignore */
+  }
+  try {
+    const res = await adminApi.oauthBindings()
+    bindings.value = res.items || []
+  } catch {
+    bindings.value = []
+  }
+}
+
+function startBind() {
+  // cookie + bearer: open with token query not needed; cookie path is /api/admin
+  const t = getToken()
+  // navigate with Authorization via cookie if set; also pass token for start if needed
+  // OAuthStart for bind reads Authorization header - browser redirect won't send custom header.
+  // Cookie is set Path=/api/admin so it will be sent. Good.
+  window.location.href = '/api/admin/oauth/start?mode=bind'
+  void t
+}
+
+async function unbind(provider: string) {
+  if (!window.confirm(`解除绑定 ${provider}？`)) return
+  try {
+    const res = (await adminApi.oauthUnbind(provider)) as {
+      items?: Array<{ id: number; provider: string; subject: string; email?: string; display_name?: string }>
+    }
+    bindings.value = res.items || []
+    msg.value = '已解除绑定'
+    toastSuccess('已解除绑定')
+  } catch (e: any) {
+    error.value = e?.message || '解绑失败'
+    toastError(e?.message || '解绑失败')
+  }
+}
 
 async function submit() {
   error.value = ''
@@ -68,7 +116,6 @@ async function submit() {
 
   loading.value = true
   try {
-    // 始终提交 username，后端忽略未变更的情况；避免只改名时字段丢失
     const res = await adminApi.updateProfile({
       username: newName,
       current_password: current.value || undefined,
@@ -77,6 +124,7 @@ async function submit() {
     if (res.token) setToken(res.token)
     if (res.user) setUser(res.user)
     msg.value = '资料已更新'
+    toastSuccess('资料已更新')
     current.value = ''
     next.value = ''
     confirm.value = ''
@@ -85,14 +133,23 @@ async function submit() {
     }
   } catch (e: any) {
     error.value = e?.message || '修改失败'
+    toastError(e?.message || '修改失败')
   } finally {
     loading.value = false
   }
 }
+
+onMounted(() => {
+  if (route.query.oauth === 'bound') {
+    msg.value = '第三方账号绑定成功'
+    toastSuccess('第三方账号绑定成功')
+  }
+  loadOAuth()
+})
 </script>
 
 <template>
-  <div class="mx-auto max-w-lg">
+  <div class="mx-auto max-w-lg space-y-4">
     <Card>
       <CardHeader>
         <CardTitle>账户资料</CardTitle>
@@ -106,7 +163,7 @@ async function submit() {
           <div class="space-y-2">
             <Label>用户名</Label>
             <Input v-model="username" autocomplete="username" maxlength="32" />
-            <p class="text-xs text-muted-foreground">2-32 位，仅字母、数字、下划线与连字符（如 LiuShen）</p>
+            <p class="text-xs text-muted-foreground">2-32 位，仅字母、数字、下划线与连字符</p>
           </div>
           <div class="space-y-2">
             <Label>当前密码</Label>
@@ -137,8 +194,45 @@ async function submit() {
           </div>
           <p v-if="error" class="text-sm text-destructive">{{ error }}</p>
           <p v-if="msg" class="text-sm text-emerald-600">{{ msg }}</p>
-          <Button type="submit" :disabled="loading">保存</Button>
+          <Button type="submit" class="rounded-xl" :disabled="loading">保存</Button>
         </form>
+      </CardContent>
+    </Card>
+
+    <Card>
+      <CardHeader>
+        <CardTitle>第三方账号</CardTitle>
+        <p class="text-sm text-muted-foreground">绑定 OAuth2 后可用于登录（需管理员开启）</p>
+      </CardHeader>
+      <CardContent class="space-y-3">
+        <div v-if="bindings.length" class="space-y-2">
+          <div
+            v-for="b in bindings"
+            :key="b.id"
+            class="flex items-center justify-between rounded-xl border border-border px-3 py-2.5 text-sm"
+          >
+            <div class="min-w-0">
+              <div class="font-medium">{{ b.provider }}</div>
+              <div class="truncate text-xs text-muted-foreground">
+                {{ b.display_name || b.email || b.subject }}
+              </div>
+            </div>
+            <div class="flex items-center gap-2">
+              <Badge variant="success">已绑定</Badge>
+              <Button size="sm" variant="outline" @click="unbind(b.provider)">解绑</Button>
+            </div>
+          </div>
+        </div>
+        <p v-else class="text-sm text-muted-foreground">尚未绑定第三方账号</p>
+        <Button
+          v-if="oauthBindEnabled"
+          variant="outline"
+          class="w-full rounded-xl"
+          @click="startBind"
+        >
+          {{ oauthLabel }}
+        </Button>
+        <p v-else class="text-xs text-muted-foreground">管理员未开启 OAuth 绑定或未配置提供商</p>
       </CardContent>
     </Card>
   </div>

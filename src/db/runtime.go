@@ -16,6 +16,9 @@ type Runtime struct {
 	PullSession PullSessionSettings
 	Features    FeatureToggles
 	Registries  []RegistryToggle
+	Site        SiteSettings
+	OAuth       OAuthSettings
+	Email       EmailSettings
 }
 
 var GlobalRuntime = &Runtime{}
@@ -30,6 +33,9 @@ func (r *Runtime) Reload() {
 	r.PullSession = LoadPullSession()
 	r.Features = LoadFeatures()
 	r.Registries = LoadRegistries()
+	r.Site = LoadSite()
+	r.OAuth = LoadOAuth()
+	r.Email = LoadEmail()
 }
 
 func (r *Runtime) Snapshot() (RateLimitSettings, SecuritySettings, AccessSettings, AdminSettings, PullSessionSettings) {
@@ -80,6 +86,24 @@ func (r *Runtime) GetRegistries() []RegistryToggle {
 	out := make([]RegistryToggle, len(r.Registries))
 	copy(out, r.Registries)
 	return out
+}
+
+func (r *Runtime) GetSite() SiteSettings {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.Site
+}
+
+func (r *Runtime) GetOAuth() OAuthSettings {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.OAuth
+}
+
+func (r *Runtime) GetEmail() EmailSettings {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.Email
 }
 
 func (r *Runtime) GetRegistry(domain string) (RegistryToggle, bool) {

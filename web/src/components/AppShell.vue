@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { RouterLink, useRoute } from 'vue-router'
-import { BookOpen, Container, ExternalLink, Menu, Rocket, Search, ShieldCheck, X, Zap } from 'lucide-vue-next'
+import { Container, ExternalLink, Github, Menu, Rocket, Search, X, Zap } from 'lucide-vue-next'
 import Button from '@/components/ui/Button.vue'
 import ThemeToggle from '@/components/ThemeToggle.vue'
 import { site } from '@/lib/site'
@@ -111,40 +111,42 @@ onMounted(() => {
       <div class="mx-auto flex max-w-6xl flex-col items-center gap-4 px-5 py-8 text-center sm:px-8">
         <div class="space-y-1">
           <div class="font-display text-base font-semibold">{{ site.name }}</div>
-          <p class="text-sm text-muted-foreground">
-            {{ site.fullName }} · {{ site.tagline }}
+          <p v-if="site.fullName || site.tagline" class="text-sm text-muted-foreground">
+            <template v-if="site.fullName">{{ site.fullName }}</template>
+            <template v-if="site.fullName && site.tagline"> · </template>
+            <template v-if="site.tagline">{{ site.tagline }}</template>
           </p>
         </div>
 
         <div class="flex flex-wrap items-center justify-center gap-x-4 gap-y-2 text-sm text-muted-foreground">
           <a
-            :href="site.home"
+            :href="site.projectUrl"
+            target="_blank"
+            rel="noopener noreferrer"
+            class="inline-flex items-center gap-1.5 transition-colors hover:text-foreground"
+          >
+            <Github class="size-3.5" />
+            {{ site.projectName }}
+          </a>
+          <a
+            v-if="site.authorHome"
+            :href="site.authorHome"
             target="_blank"
             rel="noopener noreferrer"
             class="inline-flex items-center gap-1 transition-colors hover:text-foreground"
           >
             <ExternalLink class="size-3.5" />
-            站长主页
+            作者主页
           </a>
-          <a
-            :href="site.blog"
-            target="_blank"
-            rel="noopener noreferrer"
-            class="inline-flex items-center gap-1 transition-colors hover:text-foreground"
-          >
-            <BookOpen class="size-3.5" />
-            站长博客
-          </a>
-          <span class="hidden text-border sm:inline">|</span>
-          <span class="inline-flex items-center gap-1">
-            <ShieldCheck class="size-3.5" />
-            站长：{{ site.owner }}
-          </span>
         </div>
 
-        <div class="flex flex-col items-center gap-1.5 text-xs text-muted-foreground sm:flex-row sm:gap-3">
+        <div
+          v-if="site.icp.text || site.police.text"
+          class="flex flex-col items-center gap-1.5 text-xs text-muted-foreground sm:flex-row sm:gap-3"
+        >
           <a
-            :href="site.icp.href"
+            v-if="site.icp.text"
+            :href="site.icp.href || 'https://beian.miit.gov.cn/'"
             target="_blank"
             rel="noopener noreferrer"
             class="transition-colors hover:text-foreground"
@@ -152,7 +154,8 @@ onMounted(() => {
             {{ site.icp.text }}
           </a>
           <a
-            :href="site.police.href"
+            v-if="site.police.text"
+            :href="site.police.href || 'https://beian.mps.gov.cn/'"
             target="_blank"
             rel="noopener noreferrer"
             class="inline-flex items-center gap-1.5 transition-colors hover:text-foreground"

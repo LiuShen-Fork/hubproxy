@@ -9,14 +9,13 @@ import CardHeader from '@/components/ui/CardHeader.vue'
 import CardTitle from '@/components/ui/CardTitle.vue'
 import Badge from '@/components/ui/Badge.vue'
 import { adminApi, type SettingsBundle } from '../api'
+import { toastError, toastSuccess } from '@/lib/toast'
 
 const settings = ref<SettingsBundle | null>(null)
 const blackIP = ref('')
 const whiteIP = ref('')
 const accessWhite = ref('')
 const accessBlack = ref('')
-const msg = ref('')
-const err = ref('')
 
 async function load() {
   settings.value = await adminApi.settings()
@@ -26,67 +25,95 @@ async function load() {
 
 async function saveRate() {
   if (!settings.value) return
-  await adminApi.putRateLimit(settings.value.rate_limit)
-  msg.value = '限流配置已保存'
+  try {
+    await adminApi.putRateLimit(settings.value.rate_limit)
+    toastSuccess('限流配置已保存')
+  } catch (e: any) {
+    toastError(e?.message || '保存失败')
+  }
 }
 
 async function savePullSession() {
   if (!settings.value) return
-  await adminApi.putPullSession(settings.value.pull_session)
-  msg.value = '拉取会话配置已保存'
+  try {
+    await adminApi.putPullSession(settings.value.pull_session)
+    toastSuccess('拉取会话配置已保存')
+  } catch (e: any) {
+    toastError(e?.message || '保存失败')
+  }
 }
 
 async function addBlack() {
   if (!blackIP.value.trim()) return
-  await adminApi.addBlackIP(blackIP.value.trim())
-  blackIP.value = ''
-  await load()
-  msg.value = '已加入黑名单'
+  try {
+    await adminApi.addBlackIP(blackIP.value.trim())
+    blackIP.value = ''
+    await load()
+    toastSuccess('已加入黑名单')
+  } catch (e: any) {
+    toastError(e?.message || '操作失败')
+  }
 }
 
 async function removeBlack(ip: string) {
-  await adminApi.removeBlackIP(ip)
-  await load()
+  try {
+    await adminApi.removeBlackIP(ip)
+    await load()
+    toastSuccess('已移除')
+  } catch (e: any) {
+    toastError(e?.message || '操作失败')
+  }
 }
 
 async function addWhite() {
   if (!whiteIP.value.trim()) return
-  await adminApi.addWhiteIP(whiteIP.value.trim())
-  whiteIP.value = ''
-  await load()
-  msg.value = '已加入白名单'
+  try {
+    await adminApi.addWhiteIP(whiteIP.value.trim())
+    whiteIP.value = ''
+    await load()
+    toastSuccess('已加入白名单')
+  } catch (e: any) {
+    toastError(e?.message || '操作失败')
+  }
 }
 
 async function removeWhite(ip: string) {
-  await adminApi.removeWhiteIP(ip)
-  await load()
+  try {
+    await adminApi.removeWhiteIP(ip)
+    await load()
+    toastSuccess('已移除')
+  } catch (e: any) {
+    toastError(e?.message || '操作失败')
+  }
 }
 
 async function saveAccess() {
   if (!settings.value) return
-  const body = {
-    ...settings.value.access,
-    white_list: accessWhite.value.split(/\r?\n/).map((s) => s.trim()).filter(Boolean),
-    black_list: accessBlack.value.split(/\r?\n/).map((s) => s.trim()).filter(Boolean),
+  try {
+    const body = {
+      ...settings.value.access,
+      white_list: accessWhite.value.split(/\r?\n/).map((s) => s.trim()).filter(Boolean),
+      black_list: accessBlack.value.split(/\r?\n/).map((s) => s.trim()).filter(Boolean),
+    }
+    await adminApi.putAccess(body)
+    await load()
+    toastSuccess('仓库访问控制已保存')
+  } catch (e: any) {
+    toastError(e?.message || '保存失败')
   }
-  await adminApi.putAccess(body)
-  await load()
-  msg.value = '仓库访问控制已保存'
 }
 
 onMounted(async () => {
   try {
     await load()
   } catch (e: any) {
-    err.value = e?.message || '加载失败'
+    toastError(e?.message || '加载失败')
   }
 })
 </script>
 
 <template>
   <div class="space-y-4">
-    <p v-if="msg" class="text-sm text-emerald-600">{{ msg }}</p>
-    <p v-if="err" class="text-sm text-destructive">{{ err }}</p>
 
     <div v-if="settings" class="grid gap-4 lg:grid-cols-2">
       <Card>
@@ -114,31 +141,32 @@ onMounted(async () => {
 
       <Card>
         <CardHeader>
-          <CardTitle>拉取会话聚合</CardTitle>
+          <CardTitle>拉取会话规则</CardTitle>
           <p class="text-sm text-muted-foreground">
-            同一镜像的 manifest/层请求合并为一会话；仅当实际下载了至少一层 blob 才计入拉取次数（纯探测 manifest 不计次）
+            Manifest 只跟踪不计次 → 任意一层 Blob 成功计 1 次并结束本轮 → 再次 Manifest 开新一轮；
+            纯 Manifest 探测超时后删除
           </p>
         </CardHeader>
         <CardContent class="space-y-3">
           <div class="space-y-2">
-            <Label>会话窗口（分钟）</Label>
+            <Label>会话匹配窗口（分钟）</Label>
             <Input v-model.number="settings.pull_session.window_minutes" type="number" min="1" />
-            <p class="text-xs text-muted-foreground">窗口内匹配同一 IP+镜像 的活跃会话，用于拼齐各层请求</p>
+            <p class="text-xs text-muted-foreground">未计数会话在窗口内把同镜像的 manifest/层拼在一起</p>
           </div>
           <div class="space-y-2">
-            <Label>空闲完成（分钟）</Label>
+            <Label>已计数会话空闲完成（分钟）</Label>
             <Input v-model.number="settings.pull_session.idle_minutes" type="number" min="1" />
           </div>
           <div class="space-y-2">
-            <Label>再次拉取间隔（秒）</Label>
+            <Label>Manifest 探测超时（秒）</Label>
             <Input
-              v-model.number="settings.pull_session.re_pull_gap_seconds"
+              v-model.number="settings.pull_session.manifest_probe_seconds"
               type="number"
-              min="30"
-              :placeholder="'120'"
+              min="15"
+              :placeholder="'60'"
             />
             <p class="text-xs text-muted-foreground">
-              若会话已有层下载，空闲超过该秒数后再来 tag 的 manifest，记为新的一次拉取（默认 120）
+              只有 manifest、一直没有 blob 时，超过该时间删除记录（默认 60 秒）
             </p>
           </div>
           <Button @click="savePullSession">保存会话配置</Button>

@@ -7,10 +7,9 @@ import CardHeader from '@/components/ui/CardHeader.vue'
 import CardTitle from '@/components/ui/CardTitle.vue'
 import Switch from '@/components/ui/Switch.vue'
 import { adminApi, type SettingsBundle } from '../api'
+import { toastError, toastSuccess } from '@/lib/toast'
 
 const settings = ref<SettingsBundle | null>(null)
-const msg = ref('')
-const err = ref('')
 
 async function load() {
   settings.value = await adminApi.settings()
@@ -18,31 +17,37 @@ async function load() {
 
 async function saveFeatures() {
   if (!settings.value) return
-  await adminApi.putFeatures(settings.value.features)
-  msg.value = '功能开关已保存'
-  await load()
+  try {
+    await adminApi.putFeatures(settings.value.features)
+    toastSuccess('功能开关已保存')
+    await load()
+  } catch (e: any) {
+    toastError(e?.message || '保存失败')
+  }
 }
 
 async function saveRegistries() {
   if (!settings.value) return
-  await adminApi.putRegistries(settings.value.registries)
-  msg.value = 'Registry 开关已保存'
-  await load()
+  try {
+    await adminApi.putRegistries(settings.value.registries)
+    toastSuccess('Registry 开关已保存')
+    await load()
+  } catch (e: any) {
+    toastError(e?.message || '保存失败')
+  }
 }
 
 onMounted(async () => {
   try {
     await load()
   } catch (e: any) {
-    err.value = e?.message || '加载失败'
+    toastError(e?.message || '加载失败')
   }
 })
 </script>
 
 <template>
   <div class="space-y-4">
-    <p v-if="msg" class="text-sm text-emerald-600">{{ msg }}</p>
-    <p v-if="err" class="text-sm text-destructive">{{ err }}</p>
 
     <Card v-if="settings">
       <CardHeader>
