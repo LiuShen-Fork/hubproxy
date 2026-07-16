@@ -169,6 +169,18 @@ onMounted(async () => {
               只有 manifest、一直没有 blob 时，超过该时间删除记录（默认 60 秒）
             </p>
           </div>
+          <div class="space-y-2">
+            <Label>拉取数据保留天数</Label>
+            <Input
+              v-model.number="settings.pull_session.retention_days"
+              type="number"
+              min="1"
+              :placeholder="'90'"
+            />
+            <p class="text-xs text-muted-foreground">
+              每天额度刷新后清理早于该天数的拉取会话、事件和日统计；用户账号不会删除
+            </p>
+          </div>
           <Button @click="savePullSession">保存会话配置</Button>
         </CardContent>
       </Card>

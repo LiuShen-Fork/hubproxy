@@ -93,7 +93,6 @@ export interface DashboardStats {
   total_pulls: number
   total_bytes: number
   unique_ips: number
-  active_pulls: number
   today_pulls: number
   today_bytes: number
   top_images: Array<{
@@ -190,6 +189,7 @@ export interface SettingsBundle {
     window_minutes: number
     idle_minutes: number
     manifest_probe_seconds?: number
+    retention_days?: number
     re_pull_gap_seconds?: number
   }
   features: FeatureToggles

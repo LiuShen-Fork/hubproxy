@@ -41,7 +41,6 @@ type DashboardStats struct {
 	TotalPulls    int64            `json:"total_pulls"`
 	TotalBytes    int64            `json:"total_bytes"`
 	UniqueIPs     int64            `json:"unique_ips"`
-	ActivePulls   int64            `json:"active_pulls"`
 	TodayPulls    int64            `json:"today_pulls"`
 	TodayBytes    int64            `json:"today_bytes"`
 	TopImages     []ImageStat      `json:"top_images"`
@@ -312,7 +311,6 @@ func GetUserDashboardStats(userID int64, days int) (*DashboardStats, error) {
 	_ = DB.QueryRow(`SELECT COUNT(*), COALESCE(SUM(bytes_total),0) FROM pull_sessions WHERE user_id = ? AND `+countedPullSQL, userID).
 		Scan(&stats.TotalPulls, &stats.TotalBytes)
 	_ = DB.QueryRow(`SELECT COUNT(DISTINCT client_ip) FROM pull_sessions WHERE user_id = ? AND `+countedPullSQL, userID).Scan(&stats.UniqueIPs)
-	_ = DB.QueryRow(`SELECT COUNT(*) FROM pull_sessions WHERE user_id = ? AND status = 'active' AND `+countedPullSQL, userID).Scan(&stats.ActivePulls)
 	sinceToday := LocalDayStart().UTC().Format(time.RFC3339Nano)
 	_ = DB.QueryRow(
 		`SELECT COUNT(*), COALESCE(SUM(bytes_total),0) FROM pull_sessions WHERE user_id = ? AND started_at >= ? AND `+countedPullSQL,
@@ -348,22 +346,8 @@ func GetUserDashboardStats(userID int64, days int) (*DashboardStats, error) {
 			}
 		}
 	}
-	sinceDay := time.Now().UTC().AddDate(0, 0, -days+1).Format("2006-01-02")
-	rows3, err := DB.Query(
-		`SELECT substr(started_at, 1, 10) as day, COUNT(*), COALESCE(SUM(bytes_total),0)
-		 FROM pull_sessions WHERE user_id = ? AND started_at >= ? AND `+countedPullSQL+`
-		 GROUP BY day ORDER BY day ASC`, userID, sinceDay,
-	)
-	if err == nil {
-		defer rows3.Close()
-		for rows3.Next() {
-			var it DailyTrendItem
-			if err := rows3.Scan(&it.Day, &it.PullCount, &it.Bytes); err == nil {
-				stats.DailyTrend = append(stats.DailyTrend, it)
-			}
-		}
-	}
-	recent, _, _ := ListPullSessions(PullListFilter{UserID: userID, Page: 1, PageSize: 8, CountedOnly: true})
+	stats.DailyTrend = fillDailyTrend(days, userID)
+	recent, _, _ := ListPullSessions(PullListFilter{UserID: userID, Page: 1, PageSize: 30, CountedOnly: true})
 	stats.RecentPulls = recent
 	if stats.TopImages == nil {
 		stats.TopImages = []ImageStat{}
@@ -374,13 +358,78 @@ func GetUserDashboardStats(userID int64, days int) (*DashboardStats, error) {
 	if stats.CategoryStats == nil {
 		stats.CategoryStats = []CategoryStat{}
 	}
-	if stats.DailyTrend == nil {
-		stats.DailyTrend = []DailyTrendItem{}
-	}
 	if stats.RecentPulls == nil {
 		stats.RecentPulls = []PullSession{}
 	}
 	return stats, nil
+}
+
+// fillDailyTrend returns a continuous series of `days` local calendar days (zeros filled).
+func fillDailyTrend(days int, userID int64) []DailyTrendItem {
+	if days <= 0 {
+		days = 14
+	}
+	// use local day keys to match LocalDayStart / quota semantics
+	type key struct {
+		day   string
+		pulls int64
+		bytes int64
+	}
+	byDay := map[string]key{}
+
+	// query last days+1 in UTC-ish filter, then group by local date in Go for correctness
+	since := LocalDayStart().AddDate(0, 0, -days+1).UTC().Format(time.RFC3339Nano)
+	var q string
+	var args []any
+	if userID > 0 {
+		q = `SELECT started_at, bytes_total FROM pull_sessions WHERE user_id = ? AND started_at >= ? AND ` + countedPullSQL
+		args = []any{userID, since}
+	} else {
+		q = `SELECT started_at, bytes_total FROM pull_sessions WHERE started_at >= ? AND ` + countedPullSQL
+		args = []any{since}
+	}
+	rows, err := DB.Query(q, args...)
+	if err == nil {
+		defer rows.Close()
+		for rows.Next() {
+			var started string
+			var bytes int64
+			if err := rows.Scan(&started, &bytes); err != nil {
+				continue
+			}
+			t, err := ParseTime(started)
+			if err != nil {
+				// fallback: first 10 chars
+				if len(started) >= 10 {
+					d := started[:10]
+					k := byDay[d]
+					k.day = d
+					k.pulls++
+					k.bytes += bytes
+					byDay[d] = k
+				}
+				continue
+			}
+			d := t.In(time.Local).Format("2006-01-02")
+			k := byDay[d]
+			k.day = d
+			k.pulls++
+			k.bytes += bytes
+			byDay[d] = k
+		}
+	}
+
+	out := make([]DailyTrendItem, 0, days)
+	start := LocalDayStart().AddDate(0, 0, -days+1)
+	for i := 0; i < days; i++ {
+		d := start.AddDate(0, 0, i).Format("2006-01-02")
+		if k, ok := byDay[d]; ok {
+			out = append(out, DailyTrendItem{Day: d, PullCount: k.pulls, Bytes: k.bytes})
+		} else {
+			out = append(out, DailyTrendItem{Day: d, PullCount: 0, Bytes: 0})
+		}
+	}
+	return out
 }
 
 func RecordPullEvent(sessionID, eventType, reference string, bytes int64, statusCode int) error {
@@ -502,6 +551,29 @@ func CleanupManifestProbes() error {
 	return err
 }
 
+func CleanupOldPullData() error {
+	cfg := LoadPullSession()
+	days := cfg.RetentionDays
+	if days <= 0 {
+		days = 90
+	}
+	cutoffTime := LocalDayStart().AddDate(0, 0, -days)
+	cutoff := cutoffTime.UTC().Format(time.RFC3339Nano)
+	cutoffDay := cutoffTime.Format("2006-01-02")
+
+	_, _ = DB.Exec(
+		`DELETE FROM pull_events WHERE pull_session_id IN (
+			SELECT id FROM pull_sessions WHERE started_at < ?
+		)`,
+		cutoff,
+	)
+	if _, err := DB.Exec(`DELETE FROM pull_sessions WHERE started_at < ?`, cutoff); err != nil {
+		return err
+	}
+	_, err := DB.Exec(`DELETE FROM daily_stats WHERE day < ?`, cutoffDay)
+	return err
+}
+
 func bumpDailyPull(day string) error {
 	_, err := DB.Exec(
 		`INSERT INTO daily_stats (day, pull_count, bytes_total, unique_ips) VALUES (?, 1, 0, 0)
@@ -538,7 +610,6 @@ func GetDashboardStats(days int) (*DashboardStats, error) {
 
 	_ = DB.QueryRow(`SELECT COUNT(*), COALESCE(SUM(bytes_total),0) FROM pull_sessions WHERE `+countedPullSQL).Scan(&stats.TotalPulls, &stats.TotalBytes)
 	_ = DB.QueryRow(`SELECT COUNT(DISTINCT client_ip) FROM pull_sessions WHERE ` + countedPullSQL).Scan(&stats.UniqueIPs)
-	_ = DB.QueryRow(`SELECT COUNT(*) FROM pull_sessions WHERE status = 'active' AND ` + countedPullSQL).Scan(&stats.ActivePulls)
 
 	sinceToday := LocalDayStart().UTC().Format(time.RFC3339Nano)
 	_ = DB.QueryRow(
@@ -592,24 +663,9 @@ func GetDashboardStats(days int) (*DashboardStats, error) {
 		}
 	}
 
-	sinceDay := time.Now().UTC().AddDate(0, 0, -days+1).Format("2006-01-02")
-	rows4, err := DB.Query(
-		`SELECT substr(started_at, 1, 10) as day, COUNT(*), COALESCE(SUM(bytes_total),0)
-		 FROM pull_sessions WHERE started_at >= ? AND ` + countedPullSQL + `
-		 GROUP BY day ORDER BY day ASC`,
-		sinceDay,
-	)
-	if err == nil {
-		defer rows4.Close()
-		for rows4.Next() {
-			var it DailyTrendItem
-			if err := rows4.Scan(&it.Day, &it.PullCount, &it.Bytes); err == nil {
-				stats.DailyTrend = append(stats.DailyTrend, it)
-			}
-		}
-	}
+	stats.DailyTrend = fillDailyTrend(days, 0)
 
-	recent, _, err := ListPullSessions(PullListFilter{Page: 1, PageSize: 8, CountedOnly: true})
+	recent, _, err := ListPullSessions(PullListFilter{Page: 1, PageSize: 30, CountedOnly: true})
 	if err == nil {
 		stats.RecentPulls = recent
 	}
@@ -621,9 +677,6 @@ func GetDashboardStats(days int) (*DashboardStats, error) {
 	}
 	if stats.CategoryStats == nil {
 		stats.CategoryStats = []CategoryStat{}
-	}
-	if stats.DailyTrend == nil {
-		stats.DailyTrend = []DailyTrendItem{}
 	}
 	if stats.RecentPulls == nil {
 		stats.RecentPulls = []PullSession{}

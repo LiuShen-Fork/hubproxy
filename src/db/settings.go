@@ -164,6 +164,8 @@ type PullSessionSettings struct {
 	IdleMinutes int `json:"idle_minutes"`
 	// ManifestProbeSeconds: delete manifest-only sessions with no blob after this idle
 	ManifestProbeSeconds int `json:"manifest_probe_seconds"`
+	// RetentionDays: keep pull sessions/events/stat rows for this many local days
+	RetentionDays int `json:"retention_days"`
 	// RePullGapSeconds kept for UI/API compatibility (ignored: re-pull always new after first blob)
 	RePullGapSeconds int `json:"re_pull_gap_seconds,omitempty"`
 }
@@ -239,11 +241,11 @@ func DefaultRegistryToggles() []RegistryToggle {
 
 // removedRegistryDomains are pruned from stored settings on upgrade.
 var removedRegistryDomains = map[string]bool{
-	"nvcr.io":            true,
-	"k8s.gcr.io":         true,
-	"mcr.microsoft.com":  true,
-	"public.ecr.aws":     true,
-	"docker.elastic.co":  true,
+	"nvcr.io":           true,
+	"k8s.gcr.io":        true,
+	"mcr.microsoft.com": true,
+	"public.ecr.aws":    true,
+	"docker.elastic.co": true,
 }
 
 func EnsureDefaultSettings(rateLimit RateLimitSettings, security SecuritySettings, access AccessSettings) error {
@@ -251,14 +253,15 @@ func EnsureDefaultSettings(rateLimit RateLimitSettings, security SecuritySetting
 		KeyRateLimit: rateLimit,
 		KeySecurity:  security,
 		KeyAccess:    access,
-		KeyAdmin:       DefaultAdminSettings(),
-		KeySite:        DefaultSiteSettings(),
-		KeyOAuth:       DefaultOAuthSettings(),
-		KeyEmail:       DefaultEmailSettings(),
+		KeyAdmin:     DefaultAdminSettings(),
+		KeySite:      DefaultSiteSettings(),
+		KeyOAuth:     DefaultOAuthSettings(),
+		KeyEmail:     DefaultEmailSettings(),
 		KeyPullSession: PullSessionSettings{
 			WindowMinutes:        15,
 			IdleMinutes:          30,
 			ManifestProbeSeconds: 60,
+			RetentionDays:        90,
 		},
 		KeyFeatures:   DefaultFeatureToggles(),
 		KeyRegistries: DefaultRegistryToggles(),
@@ -467,7 +470,7 @@ func (s SiteSettings) PublicSiteView() map[string]any {
 func LoadPullSession() PullSessionSettings {
 	var s PullSessionSettings
 	if err := GetSetting(KeyPullSession, &s); err != nil || s.WindowMinutes <= 0 {
-		return PullSessionSettings{WindowMinutes: 15, IdleMinutes: 30, ManifestProbeSeconds: 60}
+		return PullSessionSettings{WindowMinutes: 15, IdleMinutes: 30, ManifestProbeSeconds: 60, RetentionDays: 90}
 	}
 	if s.IdleMinutes <= 0 {
 		s.IdleMinutes = 30
@@ -479,6 +482,9 @@ func LoadPullSession() PullSessionSettings {
 		} else {
 			s.ManifestProbeSeconds = 60
 		}
+	}
+	if s.RetentionDays <= 0 {
+		s.RetentionDays = 90
 	}
 	return s
 }

@@ -15,13 +15,6 @@ const categoryOptions = [
   { value: 'library', label: 'library' },
   { value: 'user', label: 'user' },
 ]
-const statusOptions = [
-  { value: '', label: '全部状态' },
-  { value: 'active', label: 'active' },
-  { value: 'completed', label: 'completed' },
-  { value: 'failed', label: 'failed' },
-]
-
 const route = useRoute()
 const items = ref<PullSession[]>([])
 const total = ref(0)
@@ -30,7 +23,6 @@ const pageSize = 20
 const ip = ref(String(route.query.ip || ''))
 const image = ref('')
 const category = ref('')
-const status = ref('')
 const loading = ref(false)
 const selected = ref<{ session: PullSession; events: any[] } | null>(null)
 
@@ -43,7 +35,7 @@ async function load() {
       ip: ip.value,
       image: image.value,
       category: category.value,
-      status: status.value,
+      // only show counted pulls (at least one blob)
     })
     items.value = res.items
     total.value = res.total
@@ -63,11 +55,10 @@ watch(page, load)
 <template>
   <div class="space-y-4">
     <Card>
-      <CardContent class="grid gap-3 pt-5 md:grid-cols-5">
+      <CardContent class="grid gap-3 pt-5 md:grid-cols-4">
         <Input v-model="ip" placeholder="按 IP 筛选" />
         <Input v-model="image" placeholder="按镜像名称筛选" />
         <Select v-model="category" :options="categoryOptions" />
-        <Select v-model="status" :options="statusOptions" />
         <Button class="rounded-xl" @click="page = 1; load()">查询</Button>
       </CardContent>
     </Card>
@@ -90,7 +81,6 @@ watch(page, load)
               <th class="px-3 py-2.5 font-medium whitespace-nowrap">类别</th>
               <th class="px-3 py-2.5 font-medium whitespace-nowrap">层/请求</th>
               <th class="px-3 py-2.5 font-medium whitespace-nowrap">流量</th>
-              <th class="px-3 py-2.5 font-medium whitespace-nowrap">状态</th>
               <th class="px-3 py-2.5 font-medium whitespace-nowrap"></th>
             </tr>
           </template>
@@ -104,9 +94,6 @@ watch(page, load)
             <td class="px-3 py-2.5 whitespace-nowrap"><Badge variant="secondary">{{ p.category }}</Badge></td>
             <td class="px-3 py-2.5 whitespace-nowrap">{{ p.layer_count }} / {{ p.request_count }}</td>
             <td class="px-3 py-2.5 whitespace-nowrap">{{ formatBytes(p.bytes_total) }}</td>
-            <td class="px-3 py-2.5 whitespace-nowrap">
-              <Badge :variant="p.status === 'active' ? 'success' : 'outline'">{{ p.status }}</Badge>
-            </td>
             <td class="px-3 py-2.5 whitespace-nowrap">
               <Button size="sm" variant="ghost" @click="openDetail(p.id)">详情</Button>
             </td>
@@ -127,10 +114,10 @@ watch(page, load)
             <Button variant="ghost" size="sm" @click="selected = null">关闭</Button>
           </div>
           <div class="grid grid-cols-2 gap-2 text-sm">
-            <div>状态：{{ selected.session.status }}</div>
             <div>流量：{{ formatBytes(selected.session.bytes_total) }}</div>
             <div>层数：{{ selected.session.layer_count }}</div>
             <div>HTTP 请求：{{ selected.session.request_count }}</div>
+            <div>IP：{{ selected.session.client_ip }}</div>
           </div>
           <div>
             <div class="mb-2 text-sm font-medium">事件明细（分片聚合到同一次拉取）</div>

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from 'vue'
-import { Activity, HardDrive, Network, Package } from 'lucide-vue-next'
+import { HardDrive, Network, Package, TrendingUp } from 'lucide-vue-next'
 import Card from '@/components/ui/Card.vue'
 import CardContent from '@/components/ui/CardContent.vue'
 import CardHeader from '@/components/ui/CardHeader.vue'
@@ -17,6 +17,20 @@ const recentPageSize = 6
 let timer: number | undefined
 
 const recentTotal = computed(() => stats.value?.recent_pulls?.length || 0)
+const trend = computed(() => stats.value?.daily_trend || [])
+const maxPull = computed(() => Math.max(1, ...trend.value.map((t) => t.pull_count || 0)))
+
+function barHeight(count: number) {
+  if (!count) return '0%'
+  const h = Math.round((count / maxPull.value) * 100)
+  return `${Math.max(h, 5)}%`
+}
+
+function tooltipClass(index: number) {
+  if (index === 0) return 'left-0 translate-x-0'
+  if (index === trend.value.length - 1) return 'right-0 translate-x-0'
+  return 'left-1/2 -translate-x-1/2'
+}
 
 async function load() {
   try {
@@ -34,19 +48,15 @@ onMounted(() => {
 onUnmounted(() => {
   if (timer) clearInterval(timer)
 })
-
-function maxPull(trend: DashboardStats['daily_trend']) {
-  return Math.max(1, ...trend.map((t) => t.pull_count))
-}
 </script>
 
 <template>
   <div class="space-y-6">
     <p v-if="error" class="text-sm text-destructive">{{ error }}</p>
 
-    <div v-if="stats" class="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-      <Card>
-        <CardContent class="flex items-start justify-between pt-5">
+    <div v-if="stats" class="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+      <Card class="min-h-[7.5rem]">
+        <CardContent class="flex h-full items-start justify-between pt-5">
           <div>
             <div class="text-sm text-muted-foreground">总拉取次数</div>
             <div class="mt-1 font-display text-3xl font-semibold">{{ stats.total_pulls }}</div>
@@ -55,8 +65,8 @@ function maxPull(trend: DashboardStats['daily_trend']) {
           <div class="rounded-lg bg-primary/10 p-2 text-primary"><Package class="size-5" /></div>
         </CardContent>
       </Card>
-      <Card>
-        <CardContent class="flex items-start justify-between pt-5">
+      <Card class="min-h-[7.5rem]">
+        <CardContent class="flex h-full items-start justify-between pt-5">
           <div>
             <div class="text-sm text-muted-foreground">总流量</div>
             <div class="mt-1 font-display text-3xl font-semibold">{{ formatBytes(stats.total_bytes) }}</div>
@@ -65,75 +75,85 @@ function maxPull(trend: DashboardStats['daily_trend']) {
           <div class="rounded-lg bg-primary/10 p-2 text-primary"><HardDrive class="size-5" /></div>
         </CardContent>
       </Card>
-      <Card>
-        <CardContent class="flex items-start justify-between pt-5">
+      <Card class="min-h-[7.5rem]">
+        <CardContent class="flex h-full items-start justify-between pt-5">
           <div>
             <div class="text-sm text-muted-foreground">独立 IP</div>
             <div class="mt-1 font-display text-3xl font-semibold">{{ stats.unique_ips }}</div>
+            <div class="mt-1 text-xs text-muted-foreground">累计去重</div>
           </div>
           <div class="rounded-lg bg-primary/10 p-2 text-primary"><Network class="size-5" /></div>
-        </CardContent>
-      </Card>
-      <Card>
-        <CardContent class="flex items-start justify-between pt-5">
-          <div>
-            <div class="text-sm text-muted-foreground">进行中拉取</div>
-            <div class="mt-1 font-display text-3xl font-semibold">{{ stats.active_pulls }}</div>
-          </div>
-          <div class="rounded-lg bg-primary/10 p-2 text-primary"><Activity class="size-5" /></div>
         </CardContent>
       </Card>
     </div>
 
     <div v-if="stats" class="grid gap-4 xl:grid-cols-3">
-      <Card class="xl:col-span-2">
-        <CardHeader>
+      <Card class="relative flex min-h-[20rem] flex-col xl:col-span-2">
+        <CardHeader class="flex-row items-center justify-between space-y-0">
           <CardTitle>近 14 日拉取趋势</CardTitle>
+          <TrendingUp class="size-4 text-muted-foreground" />
         </CardHeader>
-        <CardContent>
-          <div class="flex h-48 items-end gap-1.5">
+        <CardContent class="flex flex-1 flex-col overflow-visible">
+          <div v-if="trend.some((d) => d.pull_count > 0)" class="flex min-h-[14rem] flex-1 items-end gap-1.5 overflow-visible sm:gap-2">
             <div
-              v-for="d in stats.daily_trend"
+              v-for="(d, index) in trend"
               :key="d.day"
-              class="group relative flex flex-1 flex-col items-center justify-end"
+              class="group relative flex h-full min-w-0 flex-1 flex-col items-center justify-end overflow-visible hover:z-50"
             >
-              <div
-                class="w-full rounded-t-md bg-primary/80 transition-all group-hover:bg-primary"
-                :style="{ height: `${(d.pull_count / maxPull(stats.daily_trend)) * 100}%`, minHeight: d.pull_count ? '4px' : '0' }"
-              />
-              <div class="mt-2 truncate text-[10px] text-muted-foreground">{{ d.day.slice(5) }}</div>
-              <div class="pointer-events-none absolute -top-8 hidden rounded bg-foreground px-2 py-1 text-xs text-background group-hover:block">
-                {{ d.pull_count }} · {{ formatBytes(d.bytes_total) }}
+              <div class="relative flex min-h-0 w-full flex-1 items-end justify-center overflow-visible px-0.5">
+                <div
+                  class="w-full max-w-[28px] rounded-t-md bg-primary/85 transition-all group-hover:bg-primary"
+                  :style="{ height: barHeight(d.pull_count) }"
+                />
+                <div
+                  :class="[
+                    'pointer-events-none absolute bottom-full z-50 mb-1 hidden whitespace-nowrap rounded-md bg-foreground px-2 py-1 text-[11px] text-background shadow-lg group-hover:block',
+                    tooltipClass(index),
+                  ]"
+                >
+                  {{ d.day }} · {{ d.pull_count }} 次 · {{ formatBytes(d.bytes_total) }}
+                </div>
+              </div>
+              <div class="mt-2 w-full truncate text-center text-[10px] text-muted-foreground">
+                {{ d.day.slice(5) }}
               </div>
             </div>
-            <div v-if="!stats.daily_trend.length" class="w-full py-16 text-center text-sm text-muted-foreground">
-              暂无数据
-            </div>
+          </div>
+          <div v-else class="flex flex-1 items-center justify-center text-sm text-muted-foreground">
+            暂无数据
           </div>
         </CardContent>
       </Card>
 
-      <Card>
+      <Card class="flex min-h-[20rem] flex-col">
         <CardHeader>
           <CardTitle>镜像类别</CardTitle>
         </CardHeader>
-        <CardContent class="space-y-3">
-          <div v-for="c in stats.category_stats" :key="c.category" class="flex items-center justify-between text-sm">
-            <Badge variant="secondary">{{ c.category }}</Badge>
-            <span>{{ c.pull_count }} 次 · {{ formatBytes(c.bytes_total) }}</span>
+        <CardContent class="flex flex-1 flex-col">
+          <div v-if="stats.category_stats?.length" class="space-y-3">
+            <div
+              v-for="c in stats.category_stats"
+              :key="c.category"
+              class="flex items-center justify-between gap-2 text-sm"
+            >
+              <Badge variant="secondary">{{ c.category }}</Badge>
+              <span class="shrink-0 text-muted-foreground">{{ c.pull_count }} 次 · {{ formatBytes(c.bytes_total) }}</span>
+            </div>
           </div>
-          <div v-if="!stats.category_stats.length" class="text-sm text-muted-foreground">暂无数据</div>
+          <div v-else class="flex flex-1 items-center justify-center text-sm text-muted-foreground">
+            暂无数据
+          </div>
         </CardContent>
       </Card>
     </div>
 
     <div v-if="stats" class="grid gap-4 lg:grid-cols-2">
-      <Card>
+      <Card class="flex min-h-[18rem] flex-col">
         <CardHeader>
           <CardTitle>热门镜像 Top 10</CardTitle>
         </CardHeader>
-        <CardContent>
-          <DataTable min-width="420px" max-height="18rem">
+        <CardContent class="flex flex-1 flex-col">
+          <DataTable v-if="stats.top_images?.length" min-width="420px" max-height="16rem">
             <template #head>
               <tr>
                 <th class="px-3 py-2.5 font-medium">镜像</th>
@@ -154,15 +174,18 @@ function maxPull(trend: DashboardStats['daily_trend']) {
               <td class="px-3 py-2.5 whitespace-nowrap">{{ formatBytes(img.bytes_total) }}</td>
             </tr>
           </DataTable>
+          <div v-else class="flex flex-1 items-center justify-center text-sm text-muted-foreground">
+            暂无数据
+          </div>
         </CardContent>
       </Card>
 
-      <Card>
+      <Card class="flex min-h-[18rem] flex-col">
         <CardHeader>
           <CardTitle>活跃 IP Top 10</CardTitle>
         </CardHeader>
-        <CardContent>
-          <DataTable min-width="360px" max-height="18rem">
+        <CardContent class="flex flex-1 flex-col">
+          <DataTable v-if="stats.top_ips?.length" min-width="360px" max-height="16rem">
             <template #head>
               <tr>
                 <th class="px-3 py-2.5 font-medium">IP</th>
@@ -176,18 +199,22 @@ function maxPull(trend: DashboardStats['daily_trend']) {
               <td class="px-3 py-2.5 whitespace-nowrap">{{ formatBytes(ip.bytes_total) }}</td>
             </tr>
           </DataTable>
+          <div v-else class="flex flex-1 items-center justify-center text-sm text-muted-foreground">
+            暂无数据
+          </div>
         </CardContent>
       </Card>
     </div>
 
-    <Card v-if="stats">
+    <Card v-if="stats" class="flex min-h-[18rem] flex-col">
       <CardHeader>
         <CardTitle>最近拉取</CardTitle>
       </CardHeader>
-      <CardContent>
+      <CardContent class="flex flex-1 flex-col">
         <DataTable
+          v-if="recentTotal"
           v-model:page="recentPage"
-          min-width="560px"
+          min-width="520px"
           max-height="20rem"
           :paginate="recentTotal > recentPageSize"
           :total="recentTotal"
@@ -199,7 +226,6 @@ function maxPull(trend: DashboardStats['daily_trend']) {
               <th class="px-3 py-2.5 font-medium">镜像</th>
               <th class="px-3 py-2.5 font-medium whitespace-nowrap">IP</th>
               <th class="px-3 py-2.5 font-medium whitespace-nowrap">流量</th>
-              <th class="px-3 py-2.5 font-medium whitespace-nowrap">状态</th>
             </tr>
           </template>
           <tr
@@ -214,12 +240,11 @@ function maxPull(trend: DashboardStats['daily_trend']) {
             </td>
             <td class="px-3 py-2.5 font-mono text-xs whitespace-nowrap">{{ p.client_ip }}</td>
             <td class="px-3 py-2.5 whitespace-nowrap">{{ formatBytes(p.bytes_total) }}</td>
-            <td class="px-3 py-2.5 whitespace-nowrap">
-              <Badge :variant="p.status === 'active' ? 'success' : 'secondary'">{{ p.status }}</Badge>
-            </td>
           </tr>
         </DataTable>
-        <p v-if="!recentTotal" class="py-6 text-center text-sm text-muted-foreground">暂无数据</p>
+        <div v-else class="flex flex-1 items-center justify-center text-sm text-muted-foreground">
+          暂无数据
+        </div>
       </CardContent>
     </Card>
   </div>

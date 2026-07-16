@@ -158,13 +158,6 @@ function switchConsole(mode: 'admin' | 'user') {
         </nav>
 
         <div class="shrink-0 space-y-3 border-t border-border/70 p-4">
-          <RouterLink
-            to="/"
-            class="flex items-center gap-2 rounded-xl border border-border/70 bg-muted/40 px-3 py-2 text-xs font-medium text-muted-foreground transition-colors hover:border-border hover:bg-accent hover:text-foreground"
-          >
-            <Home class="size-3.5" />
-            返回主页
-          </RouterLink>
           <div class="flex items-center gap-3">
             <div class="flex size-9 items-center justify-center rounded-full bg-primary/10 text-xs font-semibold text-primary">
               {{ (user?.username || '?').slice(0, 1).toUpperCase() }}
