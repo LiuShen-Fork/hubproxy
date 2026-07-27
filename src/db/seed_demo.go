@@ -9,7 +9,8 @@ import (
 )
 
 // SeedDemoPulls inserts sample pull sessions for local UI preview when:
-//   HUBPROXY_SEED_DEMO=1  and  pull table has fewer than 5 counted sessions.
+//
+//	HUBPROXY_SEED_DEMO=1  and  pull table has fewer than 5 counted sessions.
 func SeedDemoPulls() error {
 	if os.Getenv("HUBPROXY_SEED_DEMO") != "1" && os.Getenv("SEED_DEMO") != "1" {
 		return nil
@@ -24,13 +25,9 @@ func SeedDemoPulls() error {
 
 	// attach to first user if any
 	var userID any
-	var tok any
 	var uid int64
 	if err := DB.QueryRow(`SELECT id FROM users ORDER BY id ASC LIMIT 1`).Scan(&uid); err == nil {
 		userID = uid
-		if at, err := EnsureUserAccessToken(uid); err == nil {
-			tok = at.Token
-		}
 	}
 
 	type sample struct {
@@ -68,10 +65,10 @@ func SeedDemoPulls() error {
 		_, err := DB.Exec(
 			`INSERT INTO pull_sessions
 			 (id, client_ip, image_name, registry, tag, category, started_at, last_seen_at, completed_at, status,
-			  bytes_total, layer_count, request_count, user_id, access_token)
-			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'completed', ?, ?, ?, ?, ?)`,
+			  bytes_total, layer_count, request_count, user_id)
+			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'completed', ?, ?, ?, ?)`,
 			id, s.ip, s.image, s.registry, s.tag, s.cat, started, started, started,
-			s.bytes, s.layers, s.layers+2, userID, tok,
+			s.bytes, s.layers, s.layers+2, userID,
 		)
 		if err != nil {
 			return fmt.Errorf("seed pull: %w", err)

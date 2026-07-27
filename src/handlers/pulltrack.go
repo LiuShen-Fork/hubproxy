@@ -28,9 +28,10 @@ func (w *countingWriter) WriteString(s string) (int, error) {
 }
 
 // trackDockerPull:
-//   manifest → open/join uncounted cycle (no quota)
-//   first blob → quota check, then count once when body recorded
-//   later blobs → same cycle until next manifest after count
+//
+//	manifest → open/join uncounted cycle (no quota)
+//	first blob → quota check, then count once when body recorded
+//	later blobs → same cycle until next manifest after count
 func trackDockerPull(c *gin.Context, imageName, registry, tag, eventType, reference string) (*db.PullSession, string) {
 	if imageName == "" {
 		return nil, ""
@@ -48,7 +49,7 @@ func trackDockerPull(c *gin.Context, imageName, registry, tag, eventType, refere
 		}
 	}
 	ip := c.ClientIP()
-	userID, accessToken := accessUserFromContext(c)
+	userID := accessUserFromContext(c)
 
 	existing, err := db.FindActivePullSession(ip, imageName, registry, userID)
 	if err != nil {
@@ -63,7 +64,7 @@ func trackDockerPull(c *gin.Context, imageName, registry, tag, eventType, refere
 		}
 	}
 
-	sess, _, err := db.FindOrCreatePullSession(ip, imageName, registry, tag, eventType, userID, accessToken)
+	sess, _, err := db.FindOrCreatePullSession(ip, imageName, registry, tag, eventType, userID)
 	if err != nil {
 		fmt.Printf("pull session error: %v\n", err)
 		return nil, ""

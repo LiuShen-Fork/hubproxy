@@ -11,7 +11,6 @@ import (
 
 const (
 	ctxAccessUserID = "access_user_id"
-	ctxAccessToken  = "access_token"
 )
 
 // NormalizeMirrorTokenPath converts registry-mirrors path form:
@@ -40,7 +39,6 @@ func NormalizeMirrorTokenPath() gin.HandlerFunc {
 		}
 		// /Ab12Cd34/token  → /token (auth with mirror prefix)
 		if len(parts) >= 2 && db.IsAccessTokenFormat(parts[0]) && parts[1] == "token" {
-			c.Set(ctxAccessToken, parts[0])
 			if at, err := db.GetActiveToken(parts[0]); err == nil {
 				c.Set(ctxAccessUserID, at.UserID)
 			}
@@ -77,13 +75,13 @@ func ProxyDockerRegistryMirrorPrefix(c *gin.Context) {
 // Styles supported:
 //  1. Explicit: docker pull host/TOKEN/nginx → /v2/TOKEN/library/nginx/...
 //  2. Mirror:   registry-mirrors https://host/TOKEN → /TOKEN/v2/library/nginx/... (normalized first)
-func stripUserAccessToken(c *gin.Context) (userID int64, token string, denied string) {
+func stripUserAccessToken(c *gin.Context) (denied string) {
 	feat := db.GlobalRuntime.GetFeatures()
 	path := c.Request.URL.Path
 
 	// /v2/ or bare ping: always allow for registry discovery
 	if path == "/v2/" || path == "/v2" {
-		return 0, "", ""
+		return ""
 	}
 
 	if strings.HasPrefix(path, "/v2/") {
@@ -93,11 +91,11 @@ func stripUserAccessToken(c *gin.Context) (userID int64, token string, denied st
 			tok := parts[0]
 			at, err := db.GetActiveToken(tok)
 			if err != nil {
-				return 0, "", "访问令牌无效或已重置"
+				return "访问令牌无效或已重置"
 			}
 			ok, err := db.CheckUserIPAllowed(at.UserID, c.ClientIP())
 			if err != nil || !ok {
-				return 0, "", "当前 IP 不在该用户白名单内"
+				return "当前 IP 不在该用户白名单内"
 			}
 			// rewrite path without token segment
 			if len(parts) == 1 || parts[1] == "" {
@@ -106,17 +104,16 @@ func stripUserAccessToken(c *gin.Context) (userID int64, token string, denied st
 				c.Request.URL.Path = "/v2/" + parts[1]
 			}
 			c.Set(ctxAccessUserID, at.UserID)
-			c.Set(ctxAccessToken, tok)
-			return at.UserID, tok, ""
+			return ""
 		}
 		// Public mirror disabled → must use personal token path
 		if !feat.AllowPublicDockerPull() {
-			return 0, "", "公共镜像已关闭，请使用个人令牌路径：docker pull 域名/令牌/镜像 或 registry-mirrors: https://域名/令牌"
+			return "公共镜像已关闭，请使用个人令牌路径：docker pull 域名/令牌/镜像 或 registry-mirrors: https://域名/令牌"
 		}
-		return 0, "", ""
+		return ""
 	}
 
-	return 0, "", ""
+	return ""
 }
 
 // DenyTokenPathBrowse returns 404 JSON for browser/search-engine hits on /TOKEN or /TOKEN/...
@@ -137,15 +134,10 @@ func DenyTokenPathBrowse(c *gin.Context) {
 	})
 }
 
-func accessUserFromContext(c *gin.Context) (userID int64, token string) {
+func accessUserFromContext(c *gin.Context) (userID int64) {
 	if v, ok := c.Get(ctxAccessUserID); ok {
 		if id, ok := v.(int64); ok {
 			userID = id
-		}
-	}
-	if v, ok := c.Get(ctxAccessToken); ok {
-		if t, ok := v.(string); ok {
-			token = t
 		}
 	}
 	return

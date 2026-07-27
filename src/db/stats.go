@@ -24,7 +24,6 @@ type PullSession struct {
 	LayerCount   int    `json:"layer_count"`
 	RequestCount int    `json:"request_count"`
 	UserID       int64  `json:"user_id,omitempty"`
-	AccessToken  string `json:"access_token,omitempty"`
 }
 
 type PullEvent struct {
@@ -112,11 +111,10 @@ func FindActivePullSession(ip, imageName, registry string, userID int64) (*PullS
 	since := time.Now().UTC().Add(-window).Format(time.RFC3339Nano)
 	var s PullSession
 	var uid sql.NullInt64
-	var tok sql.NullString
 	err := DB.QueryRow(
 		`SELECT id, client_ip, image_name, registry, tag, category, started_at, last_seen_at,
 		        COALESCE(completed_at,''), status, bytes_total, layer_count, request_count,
-		        user_id, access_token
+		        user_id
 		 FROM pull_sessions
 		 WHERE client_ip = ? AND image_name = ? AND registry = ?
 		   AND COALESCE(user_id,0) = ?
@@ -126,7 +124,7 @@ func FindActivePullSession(ip, imageName, registry string, userID int64) (*PullS
 	).Scan(
 		&s.ID, &s.ClientIP, &s.ImageName, &s.Registry, &s.Tag, &s.Category,
 		&s.StartedAt, &s.LastSeenAt, &s.CompletedAt, &s.Status,
-		&s.BytesTotal, &s.LayerCount, &s.RequestCount, &uid, &tok,
+		&s.BytesTotal, &s.LayerCount, &s.RequestCount, &uid,
 	)
 	if err == sql.ErrNoRows {
 		return nil, nil
@@ -136,9 +134,6 @@ func FindActivePullSession(ip, imageName, registry string, userID int64) (*PullS
 	}
 	if uid.Valid {
 		s.UserID = uid.Int64
-	}
-	if tok.Valid {
-		s.AccessToken = tok.String
 	}
 	return &s, nil
 }
@@ -157,7 +152,7 @@ func isBlobEvent(eventType string) bool {
 //  3. More blobs of same pull still attach while session active
 //  4. Next manifest after already counted (layer_count>0) → complete old, open NEW cycle
 //  5. Manifest-only with no blob is deleted after ManifestProbeSeconds (see CleanupManifestProbes)
-func FindOrCreatePullSession(ip, imageName, registry, tag, eventType string, userID int64, accessToken string) (*PullSession, bool, error) {
+func FindOrCreatePullSession(ip, imageName, registry, tag, eventType string, userID int64) (*PullSession, bool, error) {
 	if tag == "" {
 		tag = "latest"
 	}
@@ -206,15 +201,11 @@ func FindOrCreatePullSession(ip, imageName, registry, tag, eventType string, use
 	if userID > 0 {
 		uid = userID
 	}
-	var tok any
-	if accessToken != "" {
-		tok = accessToken
-	}
 	_, err = DB.Exec(
 		`INSERT INTO pull_sessions
-		 (id, client_ip, image_name, registry, tag, category, started_at, last_seen_at, status, bytes_total, layer_count, request_count, user_id, access_token)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active', 0, 0, 1, ?, ?)`,
-		id, ip, imageName, registry, tag, category, now, now, uid, tok,
+		 (id, client_ip, image_name, registry, tag, category, started_at, last_seen_at, status, bytes_total, layer_count, request_count, user_id)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active', 0, 0, 1, ?)`,
+		id, ip, imageName, registry, tag, category, now, now, uid,
 	)
 	if err != nil {
 		return nil, false, err
@@ -232,7 +223,6 @@ func FindOrCreatePullSession(ip, imageName, registry, tag, eventType string, use
 		Status:       "active",
 		RequestCount: 1,
 		UserID:       userID,
-		AccessToken:  accessToken,
 	}, true, nil
 }
 
@@ -740,7 +730,7 @@ func ListPullSessions(f PullListFilter) ([]PullSession, int, error) {
 	query := fmt.Sprintf(
 		`SELECT id, client_ip, image_name, registry, tag, category, started_at, last_seen_at,
 		        COALESCE(completed_at,''), status, bytes_total, layer_count, request_count,
-		        COALESCE(user_id,0), COALESCE(access_token,'')
+		        COALESCE(user_id,0)
 		 FROM pull_sessions WHERE %s
 		 ORDER BY started_at DESC LIMIT ? OFFSET ?`, clause,
 	)
@@ -757,7 +747,7 @@ func ListPullSessions(f PullListFilter) ([]PullSession, int, error) {
 		if err := rows.Scan(
 			&s.ID, &s.ClientIP, &s.ImageName, &s.Registry, &s.Tag, &s.Category,
 			&s.StartedAt, &s.LastSeenAt, &s.CompletedAt, &s.Status,
-			&s.BytesTotal, &s.LayerCount, &s.RequestCount, &s.UserID, &s.AccessToken,
+			&s.BytesTotal, &s.LayerCount, &s.RequestCount, &s.UserID,
 		); err != nil {
 			return nil, 0, err
 		}
@@ -774,12 +764,12 @@ func GetPullSession(id string) (*PullSession, []PullEvent, error) {
 	err := DB.QueryRow(
 		`SELECT id, client_ip, image_name, registry, tag, category, started_at, last_seen_at,
 		        COALESCE(completed_at,''), status, bytes_total, layer_count, request_count,
-		        COALESCE(user_id,0), COALESCE(access_token,'')
+		        COALESCE(user_id,0)
 		 FROM pull_sessions WHERE id = ?`, id,
 	).Scan(
 		&s.ID, &s.ClientIP, &s.ImageName, &s.Registry, &s.Tag, &s.Category,
 		&s.StartedAt, &s.LastSeenAt, &s.CompletedAt, &s.Status,
-		&s.BytesTotal, &s.LayerCount, &s.RequestCount, &s.UserID, &s.AccessToken,
+		&s.BytesTotal, &s.LayerCount, &s.RequestCount, &s.UserID,
 	)
 	if err == sql.ErrNoRows {
 		return nil, nil, fmt.Errorf("not found")

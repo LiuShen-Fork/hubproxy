@@ -138,11 +138,13 @@ CREATE INDEX IF NOT EXISTS idx_email_codes_email ON email_codes(email, purpose);
 	if err := ensureColumns(); err != nil {
 		return fmt.Errorf("migrate columns: %w", err)
 	}
+	if err := detachPullSessionsFromTokens(); err != nil {
+		return fmt.Errorf("migrate pull session ownership: %w", err)
+	}
 	_ = ensureEmailCodesTable()
 	// indexes that depend on new columns
 	if _, err := DB.Exec(`
 CREATE INDEX IF NOT EXISTS idx_pull_sessions_user ON pull_sessions(user_id);
-CREATE INDEX IF NOT EXISTS idx_pull_sessions_token ON pull_sessions(access_token);
 `); err != nil {
 		return fmt.Errorf("migrate indexes: %w", err)
 	}
@@ -159,12 +161,6 @@ func ensureColumns() error {
 			return err
 		}
 	}
-	if !cols["access_token"] {
-		if _, err := DB.Exec(`ALTER TABLE pull_sessions ADD COLUMN access_token TEXT`); err != nil {
-			return err
-		}
-	}
-
 	ucols, err := tableColumns("users")
 	if err != nil {
 		return err
@@ -175,6 +171,44 @@ func ensureColumns() error {
 		}
 	}
 	return nil
+}
+
+// detachPullSessionsFromTokens migrates legacy pull records to user ownership.
+// It backfills user_id before removing the credential snapshot, preserving all
+// pull history while allowing tokens to be rotated independently.
+func detachPullSessionsFromTokens() error {
+	cols, err := tableColumns("pull_sessions")
+	if err != nil || !cols["access_token"] {
+		return err
+	}
+
+	tx, err := DB.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.Exec(`
+UPDATE pull_sessions
+SET user_id = (
+	SELECT user_id FROM user_access_tokens
+	WHERE user_access_tokens.token = pull_sessions.access_token
+)
+WHERE user_id IS NULL
+  AND access_token IS NOT NULL
+  AND EXISTS (
+	SELECT 1 FROM user_access_tokens
+	WHERE user_access_tokens.token = pull_sessions.access_token
+  )`); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`DROP INDEX IF EXISTS idx_pull_sessions_token`); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`ALTER TABLE pull_sessions DROP COLUMN access_token`); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 func tableColumns(table string) (map[string]bool, error) {
