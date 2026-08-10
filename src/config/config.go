@@ -27,6 +27,7 @@ type AppConfig struct {
 		FileSize       int64  `toml:"fileSize"`
 		EnableH2C      bool   `toml:"enableH2C"`
 		EnableFrontend bool   `toml:"enableFrontend"`
+		DatabasePath   string `toml:"databasePath"`
 	} `toml:"server"`
 
 	RateLimit struct {
@@ -76,12 +77,14 @@ func DefaultConfig() *AppConfig {
 			FileSize       int64  `toml:"fileSize"`
 			EnableH2C      bool   `toml:"enableH2C"`
 			EnableFrontend bool   `toml:"enableFrontend"`
+			DatabasePath   string `toml:"databasePath"`
 		}{
 			Host:           "0.0.0.0",
 			Port:           5000,
 			FileSize:       2 * 1024 * 1024 * 1024,
 			EnableH2C:      false,
 			EnableFrontend: true,
+			DatabasePath:   "data/hubproxy.db",
 		},
 		RateLimit: struct {
 			RequestLimit int     `toml:"requestLimit"`
@@ -134,6 +137,12 @@ func DefaultConfig() *AppConfig {
 				Upstream: "registry.k8s.io",
 				AuthHost: "registry.k8s.io",
 				AuthType: "anonymous",
+				Enabled:  true,
+			},
+			"registry.gitlab.com": {
+				Upstream: "registry.gitlab.com",
+				AuthHost: "gitlab.com/jwt/auth",
+				AuthType: "gitlab",
 				Enabled:  true,
 			},
 		},

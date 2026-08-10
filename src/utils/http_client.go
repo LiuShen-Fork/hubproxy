@@ -4,6 +4,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"hubproxy/config"
@@ -14,14 +15,23 @@ var (
 	searchHTTPClient *http.Client
 )
 
-// InitHTTPClients 初始化HTTP客户端
-func InitHTTPClients() {
-	cfg := config.GetConfig()
-
-	if p := cfg.Access.Proxy; p != "" {
-		os.Setenv("HTTP_PROXY", p)
-		os.Setenv("HTTPS_PROXY", p)
+// ApplyProxyEnv updates outbound proxy environment used by HTTP transports.
+func ApplyProxyEnv(proxy string) {
+	proxy = strings.TrimSpace(proxy)
+	if proxy == "" {
+		os.Unsetenv("HTTP_PROXY")
+		os.Unsetenv("HTTPS_PROXY")
+		os.Unsetenv("http_proxy")
+		os.Unsetenv("https_proxy")
+		return
 	}
+	os.Setenv("HTTP_PROXY", proxy)
+	os.Setenv("HTTPS_PROXY", proxy)
+}
+
+// InitHTTPClients 初始化HTTP客户端（出站代理由 ApplyProxyEnv / 后台配置注入）
+func InitHTTPClients() {
+	_ = config.GetConfig()
 
 	globalHTTPClient = &http.Client{
 		Transport: &http.Transport{

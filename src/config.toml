@@ -8,6 +8,8 @@ fileSize = 2147483648
 # HTTP/2 多路复用
 enableH2C = false
 enableFrontend = true
+# SQLite 数据库路径（后台用户/统计/动态配置）
+databasePath = "data/hubproxy.db"
 
 [rateLimit]
 # 每个IP每周期允许的请求数
@@ -82,6 +84,13 @@ enabled = true
 upstream = "registry.k8s.io"
 authHost = "registry.k8s.io"
 authType = "anonymous"
+enabled = true
+
+# GitLab Container Registry
+[registries."registry.gitlab.com"]
+upstream = "registry.gitlab.com"
+authHost = "gitlab.com/jwt/auth"
+authType = "gitlab"
 enabled = true
 
 [tokenCache]

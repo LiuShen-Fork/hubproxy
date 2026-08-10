@@ -7,8 +7,12 @@ services:
       - "5000:5000"
     volumes:
       - ./src/config.toml:/app/config.toml:ro
+      - hubproxy-data:/app/data
     logging:
       driver: json-file
       options:
         max-size: "200m"
         max-file: "3"
+
+volumes:
+  hubproxy-data:

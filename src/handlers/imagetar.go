@@ -27,6 +27,7 @@ import (
 	"github.com/google/go-containerregistry/pkg/v1/remote"
 	"github.com/google/go-containerregistry/pkg/v1/types"
 	"hubproxy/config"
+	"hubproxy/db"
 	"hubproxy/utils"
 )
 
@@ -708,6 +709,14 @@ func formatPlatformText(platform string) string {
 // InitImageTarRoutes 初始化镜像下载路由
 func InitImageTarRoutes(router *gin.Engine) {
 	imageAPI := router.Group("/api/image")
+	imageAPI.Use(func(c *gin.Context) {
+		if !db.GlobalRuntime.GetFeatures().OfflineImage {
+			c.JSON(http.StatusForbidden, gin.H{"error": "离线镜像下载已关闭"})
+			c.Abort()
+			return
+		}
+		c.Next()
+	})
 	{
 		imageAPI.GET("/download", handleDirectImageDownload)
 		imageAPI.GET("/info", handleImageInfo)

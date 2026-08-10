@@ -39,6 +39,8 @@ type IPRateLimiter struct {
 	whitelist        []*net.IPNet
 	blacklist        []*net.IPNet
 	whitelistLimiter *rate.Limiter // 全局共享的白名单限流器
+	// skipPaths for static / admin auth that should not consume HTTP rate tokens
+	// pull-session rate limit is handled separately in handlers
 }
 
 // rateLimiterEntry 限流器条目
@@ -51,35 +53,8 @@ type rateLimiterEntry struct {
 func InitGlobalLimiter() *IPRateLimiter {
 	cfg := config.GetConfig()
 
-	whitelist := make([]*net.IPNet, 0, len(cfg.Security.WhiteList))
-	for _, item := range cfg.Security.WhiteList {
-		if item = strings.TrimSpace(item); item != "" {
-			if !strings.Contains(item, "/") {
-				item = item + "/32"
-			}
-			_, ipnet, err := net.ParseCIDR(item)
-			if err == nil {
-				whitelist = append(whitelist, ipnet)
-			} else {
-				fmt.Printf("警告: 无效的白名单IP格式: %s\n", item)
-			}
-		}
-	}
-
-	blacklist := make([]*net.IPNet, 0, len(cfg.Security.BlackList))
-	for _, item := range cfg.Security.BlackList {
-		if item = strings.TrimSpace(item); item != "" {
-			if !strings.Contains(item, "/") {
-				item = item + "/32"
-			}
-			_, ipnet, err := net.ParseCIDR(item)
-			if err == nil {
-				blacklist = append(blacklist, ipnet)
-			} else {
-				fmt.Printf("警告: 无效的黑名单IP格式: %s\n", item)
-			}
-		}
-	}
+	whitelist := parseCIDRList(cfg.Security.WhiteList)
+	blacklist := parseCIDRList(cfg.Security.BlackList)
 
 	ratePerSecond := rate.Limit(float64(cfg.RateLimit.RequestLimit) / (cfg.RateLimit.PeriodHours * 3600))
 
@@ -221,17 +196,93 @@ func (i *IPRateLimiter) GetLimiter(ip string) (*rate.Limiter, bool) {
 	return entry.limiter, true
 }
 
+// parseCIDRList parses IP/CIDR strings into IPNet list.
+func parseCIDRList(items []string) []*net.IPNet {
+	out := make([]*net.IPNet, 0, len(items))
+	for _, item := range items {
+		item = strings.TrimSpace(item)
+		if item == "" {
+			continue
+		}
+		if !strings.Contains(item, "/") {
+			if strings.Contains(item, ":") {
+				item = item + "/128"
+			} else {
+				item = item + "/32"
+			}
+		}
+		_, ipnet, err := net.ParseCIDR(item)
+		if err == nil {
+			out = append(out, ipnet)
+		} else {
+			fmt.Printf("警告: 无效的IP格式: %s\n", item)
+		}
+	}
+	return out
+}
+
+// UpdateSecurity reloads whitelist/blacklist and rate parameters at runtime.
+func (i *IPRateLimiter) UpdateSecurity(whiteList, blackList []string, requestLimit int, periodHours float64) {
+	if requestLimit < 1 {
+		requestLimit = 1
+	}
+	if periodHours <= 0 {
+		periodHours = 1
+	}
+	ratePerSecond := rate.Limit(float64(requestLimit) / (periodHours * 3600))
+	burstSize := requestLimit
+
+	i.mu.Lock()
+	defer i.mu.Unlock()
+	i.whitelist = parseCIDRList(whiteList)
+	i.blacklist = parseCIDRList(blackList)
+	i.r = ratePerSecond
+	i.b = burstSize
+	i.whitelistLimiter = rate.NewLimiter(rate.Inf, burstSize)
+	// reset per-IP limiters so new rate applies
+	i.ips = make(map[string]*rateLimiterEntry)
+}
+
+// IsBlacklisted reports whether IP is on the blacklist.
+func (i *IPRateLimiter) IsBlacklisted(ip string) bool {
+	cleanIP := extractIPFromAddress(ip)
+	i.mu.RLock()
+	defer i.mu.RUnlock()
+	return isIPInCIDRList(cleanIP, i.blacklist)
+}
+
+// IPInList checks whether ip matches any CIDR/IP entry in list.
+func IPInList(ip string, list []string) bool {
+	return isIPInCIDRList(extractIPFromAddress(ip), parseCIDRList(list))
+}
+
 // RateLimitMiddleware 速率限制中间件
 func RateLimitMiddleware(limiter *IPRateLimiter) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		path := c.Request.URL.Path
-		if path == "/" || path == "/images" || path == "/search" ||
+		if path == "/" || path == "/images" || path == "/search" || path == "/admin" ||
 			path == "/favicon.ico" ||
-			strings.HasPrefix(path, "/assets/") {
+			strings.HasPrefix(path, "/assets/") ||
+			strings.HasPrefix(path, "/admin/") {
 			c.Next()
 			return
 		}
 
+		// Admin API: only enforce blacklist, not token-bucket (login has own throttle)
+		if strings.HasPrefix(path, "/api/admin") {
+			cleanIP := extractIPFromAddress(c.ClientIP())
+			if limiter.IsBlacklisted(cleanIP) {
+				c.JSON(403, gin.H{"error": "您已被限制访问"})
+				c.Abort()
+				return
+			}
+			c.Next()
+			return
+		}
+
+		// Docker registry blob/manifest requests: blacklist only at middleware;
+		// pull-session quota is applied when a new pull session is created.
+		isDockerRegistry := strings.HasPrefix(path, "/v2/") || strings.HasPrefix(path, "/token")
 		cleanIP := extractIPFromAddress(c.ClientIP())
 
 		ipLimiter, allowed := limiter.GetLimiter(cleanIP)
@@ -241,6 +292,12 @@ func RateLimitMiddleware(limiter *IPRateLimiter) gin.HandlerFunc {
 				"error": "您已被限制访问",
 			})
 			c.Abort()
+			return
+		}
+
+		if isDockerRegistry {
+			// still protect against extreme abuse with a soft allow; actual pull quota is session-based
+			c.Next()
 			return
 		}
 

@@ -2,6 +2,7 @@ package utils
 
 import (
 	"strings"
+	"sync"
 
 	"hubproxy/config"
 )
@@ -16,6 +17,10 @@ const (
 
 // AccessController 统一访问控制器
 type AccessController struct {
+	mu        sync.RWMutex
+	whiteList []string
+	blackList []string
+	useCustom bool
 }
 
 // DockerImageInfo Docker镜像信息
@@ -28,6 +33,25 @@ type DockerImageInfo struct {
 
 // GlobalAccessController 全局访问控制器实例
 var GlobalAccessController = &AccessController{}
+
+// SetAccessLists updates runtime white/black lists (from admin / SQLite).
+func (ac *AccessController) SetAccessLists(white, black []string) {
+	ac.mu.Lock()
+	defer ac.mu.Unlock()
+	ac.whiteList = append([]string(nil), white...)
+	ac.blackList = append([]string(nil), black...)
+	ac.useCustom = true
+}
+
+func (ac *AccessController) getLists() (white, black []string) {
+	ac.mu.RLock()
+	defer ac.mu.RUnlock()
+	if ac.useCustom {
+		return append([]string(nil), ac.whiteList...), append([]string(nil), ac.blackList...)
+	}
+	cfg := config.GetConfig()
+	return append([]string(nil), cfg.Access.WhiteList...), append([]string(nil), cfg.Access.BlackList...)
+}
 
 // ParseDockerImage 解析Docker镜像名称
 func (ac *AccessController) ParseDockerImage(image string) DockerImageInfo {
@@ -79,18 +103,17 @@ func (ac *AccessController) ParseDockerImage(image string) DockerImageInfo {
 
 // CheckDockerAccess 检查Docker镜像访问权限
 func (ac *AccessController) CheckDockerAccess(image string) (allowed bool, reason string) {
-	cfg := config.GetConfig()
-
+	white, black := ac.getLists()
 	imageInfo := ac.ParseDockerImage(image)
 
-	if len(cfg.Access.WhiteList) > 0 {
-		if !ac.matchImageInList(imageInfo, cfg.Access.WhiteList) {
+	if len(white) > 0 {
+		if !ac.matchImageInList(imageInfo, white) {
 			return false, "不在Docker镜像白名单内"
 		}
 	}
 
-	if len(cfg.Access.BlackList) > 0 {
-		if ac.matchImageInList(imageInfo, cfg.Access.BlackList) {
+	if len(black) > 0 {
+		if ac.matchImageInList(imageInfo, black) {
 			return false, "Docker镜像在黑名单内"
 		}
 	}
@@ -104,13 +127,13 @@ func (ac *AccessController) CheckGitHubAccess(matches []string) (allowed bool, r
 		return false, "无效的GitHub仓库格式"
 	}
 
-	cfg := config.GetConfig()
+	white, black := ac.getLists()
 
-	if len(cfg.Access.WhiteList) > 0 && !ac.checkList(matches, cfg.Access.WhiteList) {
+	if len(white) > 0 && !ac.checkList(matches, white) {
 		return false, "不在GitHub仓库白名单内"
 	}
 
-	if len(cfg.Access.BlackList) > 0 && ac.checkList(matches, cfg.Access.BlackList) {
+	if len(black) > 0 && ac.checkList(matches, black) {
 		return false, "GitHub仓库在黑名单内"
 	}
 
