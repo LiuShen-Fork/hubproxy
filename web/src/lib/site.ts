@@ -13,12 +13,15 @@ export type SiteInfo = {
   announcement: string
 }
 
+/** Fixed author attribution (not admin-configurable). */
+const AUTHOR_HOME = 'https://www.liushen.fun/'
+
 const defaults: SiteInfo = {
   name: '镜像加速',
   fullName: '自建多源镜像',
   tagline: '',
   description: '多源镜像加速服务，支持 Docker、GitHub、Hugging Face。',
-  authorHome: '',
+  authorHome: AUTHOR_HOME,
   projectName: 'HubProxy',
   projectUrl: 'https://github.com/LiuShen-Fork/hubproxy',
   icp: { text: '', href: '' },
@@ -40,7 +43,8 @@ export function applySiteFromApi(raw: any) {
   if (raw.full_name) state.fullName = String(raw.full_name)
   if (raw.tagline != null) state.tagline = String(raw.tagline)
   if (raw.description != null) state.description = String(raw.description)
-  if (raw.author_home != null) state.authorHome = String(raw.author_home)
+  // author home is fixed copyright attribution
+  state.authorHome = AUTHOR_HOME
   if (raw.project_name) state.projectName = String(raw.project_name)
   if (raw.project_url) state.projectUrl = String(raw.project_url)
   if (raw.icp_text != null) state.icp.text = String(raw.icp_text)

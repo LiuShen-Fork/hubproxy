@@ -146,7 +146,6 @@ export interface SiteSettingsApi {
   full_name: string
   tagline: string
   description: string
-  author_home?: string
   icp_text: string
   police_text: string
   announcement?: string

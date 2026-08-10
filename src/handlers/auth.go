@@ -62,12 +62,31 @@ func AuthRequired() gin.HandlerFunc {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "未登录或会话已过期", "code": "UNAUTHORIZED"})
 			return
 		}
+		// reject absurdly long tokens (DoS / injection noise)
+		if len(token) > 128 {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "未登录或会话已过期", "code": "UNAUTHORIZED"})
+			return
+		}
 		sess, user, err := db.GetSessionByToken(token)
 		if err != nil {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "未登录或会话已过期", "code": "UNAUTHORIZED"})
 			return
 		}
-		_ = sess // session validated via token hash + expiry
+		// Force password change before any privileged API use
+		if user.MustChangePassword {
+			path := c.Request.URL.Path
+			allowed := path == "/api/admin/me" ||
+				path == "/api/admin/change-password" ||
+				path == "/api/admin/profile" ||
+				path == "/api/admin/logout"
+			if !allowed {
+				c.AbortWithStatusJSON(http.StatusForbidden, gin.H{
+					"error": "请先修改默认密码后再使用系统",
+					"code":  "MUST_CHANGE_PASSWORD",
+				})
+				return
+			}
+		}
 		c.Set(ctxUserKey, user)
 		c.Set(ctxSessionID, sess.ID)
 		c.Next()
@@ -138,8 +157,18 @@ func AuthLogin(c *gin.Context) {
 	}
 
 	req.Username = strings.TrimSpace(req.Username)
-	if len(req.Username) == 0 || len(req.Password) == 0 || len(req.Password) > 128 {
+	if len(req.Username) == 0 || len(req.Username) > 64 || len(req.Password) == 0 || len(req.Password) > 128 {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "参数无效", "code": "BAD_REQUEST"})
+		return
+	}
+
+	// also throttle by username (distributed credential stuffing)
+	userFails, _ := db.CountRecentLoginFailuresByUsername(req.Username, loginWindow)
+	if userFails >= maxFailures {
+		c.JSON(http.StatusTooManyRequests, gin.H{
+			"error": "该账号登录失败次数过多，请 15 分钟后再试",
+			"code":  "LOGIN_THROTTLED",
+		})
 		return
 	}
 
@@ -151,6 +180,9 @@ func AuthLogin(c *gin.Context) {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "用户名或密码错误", "code": "INVALID_CREDENTIALS"})
 		return
 	}
+
+	// single-session preference: drop other sessions on new login (limit session sprawl)
+	_ = db.DeleteUserSessions(user.ID)
 
 	token, _, err := db.CreateSession(user.ID, ip, c.Request.UserAgent())
 	if err != nil {
@@ -192,10 +224,15 @@ func AuthRegister(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "参数无效"})
 		return
 	}
-	if len(req.Password) < 8 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "密码至少 8 位"})
+	if len(req.Password) < 8 || len(req.Password) > 128 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "密码长度需为 8-128 位"})
 		return
 	}
+	if err := db.ValidateUsername(req.Username); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	// registration always creates normal users (never elevate via API)
 	emailCfg := db.GlobalRuntime.GetEmail()
 	if admin.EmailRegisterEnabled && emailCfg.Enabled {
 		if strings.TrimSpace(req.Email) == "" || strings.TrimSpace(req.Code) == "" {

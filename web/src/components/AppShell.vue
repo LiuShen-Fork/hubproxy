@@ -129,8 +129,7 @@ onMounted(() => {
             {{ site.projectName }}
           </a>
           <a
-            v-if="site.authorHome"
-            :href="site.authorHome"
+            href="https://www.liushen.fun/"
             target="_blank"
             rel="noopener noreferrer"
             class="inline-flex items-center gap-1 transition-colors hover:text-foreground"
