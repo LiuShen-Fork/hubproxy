@@ -12,7 +12,9 @@ import (
 
 const AccessTokenLen = 8
 
-var tokenAlphabet = []byte("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789")
+// Generated tokens must be valid Docker repository path components. Keep the
+// validator backward-compatible so existing mixed-case tokens are not revoked.
+var tokenAlphabet = []byte("abcdefghijklmnopqrstuvwxyz0123456789")
 
 type UserAccessToken struct {
 	Token     string `json:"token"`

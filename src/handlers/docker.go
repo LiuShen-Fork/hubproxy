@@ -93,7 +93,7 @@ func InitDockerProxy() {
 
 // ProxyDockerRegistryGin 标准Docker Registry API v2代理
 func ProxyDockerRegistryGin(c *gin.Context) {
-	if _, _, denied := stripUserAccessToken(c); denied != "" {
+	if denied := stripUserAccessToken(c); denied != "" {
 		// token invalid / IP whitelist → 401; public closed → 403
 		if strings.Contains(denied, "公共镜像") {
 			denyDockerForbidden(c, denied)
