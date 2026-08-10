@@ -115,16 +115,31 @@ onMounted(async () => {
       <Card>
         <CardHeader>
           <CardTitle>拉取会话聚合</CardTitle>
-          <p class="text-sm text-muted-foreground">将 manifest/blob 分片请求合并为一次拉取</p>
+          <p class="text-sm text-muted-foreground">
+            同一镜像的 manifest/层请求合并为一会话；仅当实际下载了至少一层 blob 才计入拉取次数（纯探测 manifest 不计次）
+          </p>
         </CardHeader>
         <CardContent class="space-y-3">
           <div class="space-y-2">
             <Label>会话窗口（分钟）</Label>
             <Input v-model.number="settings.pull_session.window_minutes" type="number" min="1" />
+            <p class="text-xs text-muted-foreground">窗口内匹配同一 IP+镜像 的活跃会话，用于拼齐各层请求</p>
           </div>
           <div class="space-y-2">
             <Label>空闲完成（分钟）</Label>
             <Input v-model.number="settings.pull_session.idle_minutes" type="number" min="1" />
+          </div>
+          <div class="space-y-2">
+            <Label>再次拉取间隔（秒）</Label>
+            <Input
+              v-model.number="settings.pull_session.re_pull_gap_seconds"
+              type="number"
+              min="30"
+              :placeholder="'120'"
+            />
+            <p class="text-xs text-muted-foreground">
+              若会话已有层下载，空闲超过该秒数后再来 tag 的 manifest，记为新的一次拉取（默认 120）
+            </p>
           </div>
           <Button @click="savePullSession">保存会话配置</Button>
         </CardContent>

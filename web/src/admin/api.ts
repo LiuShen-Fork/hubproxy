@@ -142,7 +142,7 @@ export interface SettingsBundle {
   security: { white_list: string[]; black_list: string[] }
   access: { white_list: string[]; black_list: string[]; proxy: string }
   admin: { register_enabled: boolean }
-  pull_session: { window_minutes: number; idle_minutes: number }
+  pull_session: { window_minutes: number; idle_minutes: number; re_pull_gap_seconds?: number }
   features: FeatureToggles
   registries: RegistryToggle[]
 }

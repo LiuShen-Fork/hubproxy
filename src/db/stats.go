@@ -80,16 +80,17 @@ type DailyTrendItem struct {
 }
 
 type PullListFilter struct {
-	IP       string
-	Image    string
-	Category string
-	Registry string
-	Status   string
-	From     string
-	To       string
-	UserID   int64
-	Page     int
-	PageSize int
+	IP          string
+	Image       string
+	Category    string
+	Registry    string
+	Status      string
+	From        string
+	To          string
+	UserID      int64
+	Page        int
+	PageSize    int
+	CountedOnly bool // only sessions with at least one layer blob
 }
 
 func ImageCategory(imageName string) string {
@@ -143,7 +144,26 @@ func FindActivePullSession(ip, imageName, registry string, userID int64) (*PullS
 	return &s, nil
 }
 
-func FindOrCreatePullSession(ip, imageName, registry, tag string, userID int64, accessToken string) (*PullSession, bool, error) {
+// isTagManifestRequest is a client asking for an image by tag (start of a real pull),
+// not a bare digest-only probe.
+func isTagManifestRequest(eventType, tag string) bool {
+	if eventType != "manifests" && eventType != "manifest" {
+		return false
+	}
+	if tag == "" || tag == "digest" {
+		return false
+	}
+	return !strings.HasPrefix(tag, "sha256:")
+}
+
+// FindOrCreatePullSession groups registry requests into one logical pull.
+// Counting (quota/stats) only happens later when the first blob layer is downloaded
+// (see MarkSessionCountedIfNeeded). Manifest-only probes do not consume quota.
+//
+// eventType: "manifests" | "blobs" | ...
+// If an active session already has layers and a new tag-manifest arrives after RePullGapSeconds,
+// a new session is opened so a second docker pull counts separately.
+func FindOrCreatePullSession(ip, imageName, registry, tag, eventType string, userID int64, accessToken string) (*PullSession, bool, error) {
 	if tag == "" {
 		tag = "latest"
 	}
@@ -151,15 +171,29 @@ func FindOrCreatePullSession(ip, imageName, registry, tag string, userID int64, 
 		registry = "docker.io"
 	}
 	category := ImageCategory(imageName)
+	cfg := LoadPullSession()
+	gap := time.Duration(cfg.RePullGapSeconds) * time.Second
+	if gap <= 0 {
+		gap = 2 * time.Minute
+	}
 
-	// Match by IP + image + registry + user within window.
 	s, err := FindActivePullSession(ip, imageName, registry, userID)
 	if err != nil {
 		return nil, false, err
 	}
 	if s != nil {
+		// Second pull: session already pulled layers, idle for gap, new tag manifest → new session
+		if s.LayerCount > 0 && isTagManifestRequest(eventType, tag) {
+			if last, err := ParseTime(s.LastSeenAt); err == nil && time.Since(last) >= gap {
+				_ = CompletePullSession(s.ID, "completed")
+				s = nil
+			}
+		}
+	}
+	if s != nil {
 		now := Now()
-		if tag != "" && tag != "digest" && (s.Tag == "" || s.Tag == "digest" || s.Tag == "latest" || s.Tag != tag) {
+		if tag != "" && tag != "digest" && !strings.HasPrefix(tag, "sha256:") &&
+			(s.Tag == "" || s.Tag == "digest" || s.Tag == "latest" || s.Tag != tag) {
 			_, _ = DB.Exec(
 				`UPDATE pull_sessions SET last_seen_at = ?, request_count = request_count + 1, tag = ? WHERE id = ?`,
 				now, tag, s.ID,
@@ -195,7 +229,7 @@ func FindOrCreatePullSession(ip, imageName, registry, tag string, userID int64, 
 	if err != nil {
 		return nil, false, err
 	}
-	_ = bumpDailyPull(now[:10])
+	// Do NOT count toward daily quota / daily_stats until first blob layer arrives.
 
 	return &PullSession{
 		ID:           id,
@@ -212,6 +246,9 @@ func FindOrCreatePullSession(ip, imageName, registry, tag string, userID int64, 
 		AccessToken:  accessToken,
 	}, true, nil
 }
+
+// countedPullSQL filters sessions that actually downloaded at least one layer blob.
+const countedPullSQL = `layer_count > 0`
 
 func CountPullsByUserInPeriod(userID int64, periodHours float64) (int, error) {
 	since := time.Now().UTC().Add(-time.Duration(periodHours * float64(time.Hour))).Format(time.RFC3339Nano)
@@ -233,8 +270,9 @@ func LocalDayStart() time.Time {
 func CountPullsByUserToday(userID int64) (int, error) {
 	since := LocalDayStart().UTC().Format(time.RFC3339Nano)
 	var n int
+	// Only sessions that actually pulled at least one layer count as a real pull.
 	err := DB.QueryRow(
-		`SELECT COUNT(*) FROM pull_sessions WHERE user_id = ? AND started_at >= ?`,
+		`SELECT COUNT(*) FROM pull_sessions WHERE user_id = ? AND started_at >= ? AND `+countedPullSQL,
 		userID, since,
 	).Scan(&n)
 	return n, err
@@ -281,19 +319,20 @@ func GetUserDashboardStats(userID int64, days int) (*DashboardStats, error) {
 		days = 14
 	}
 	stats := &DashboardStats{}
-	_ = DB.QueryRow(`SELECT COUNT(*), COALESCE(SUM(bytes_total),0) FROM pull_sessions WHERE user_id = ?`, userID).
+	_ = DB.QueryRow(`SELECT COUNT(*), COALESCE(SUM(bytes_total),0) FROM pull_sessions WHERE user_id = ? AND `+countedPullSQL, userID).
 		Scan(&stats.TotalPulls, &stats.TotalBytes)
-	_ = DB.QueryRow(`SELECT COUNT(DISTINCT client_ip) FROM pull_sessions WHERE user_id = ?`, userID).Scan(&stats.UniqueIPs)
-	_ = DB.QueryRow(`SELECT COUNT(*) FROM pull_sessions WHERE user_id = ? AND status = 'active'`, userID).Scan(&stats.ActivePulls)
-	today := time.Now().UTC().Format("2006-01-02")
+	_ = DB.QueryRow(`SELECT COUNT(DISTINCT client_ip) FROM pull_sessions WHERE user_id = ? AND `+countedPullSQL, userID).Scan(&stats.UniqueIPs)
+	_ = DB.QueryRow(`SELECT COUNT(*) FROM pull_sessions WHERE user_id = ? AND status = 'active' AND `+countedPullSQL, userID).Scan(&stats.ActivePulls)
+	sinceToday := LocalDayStart().UTC().Format(time.RFC3339Nano)
 	_ = DB.QueryRow(
-		`SELECT COUNT(*), COALESCE(SUM(bytes_total),0) FROM pull_sessions WHERE user_id = ? AND started_at LIKE ?`,
-		userID, today+"%",
+		`SELECT COUNT(*), COALESCE(SUM(bytes_total),0) FROM pull_sessions WHERE user_id = ? AND started_at >= ? AND `+countedPullSQL,
+		userID, sinceToday,
 	).Scan(&stats.TodayPulls, &stats.TodayBytes)
 
 	rows, err := DB.Query(
 		`SELECT image_name, registry, category, COUNT(*), COALESCE(SUM(bytes_total),0), COUNT(DISTINCT client_ip)
-		 FROM pull_sessions WHERE user_id = ? GROUP BY image_name, registry, category
+		 FROM pull_sessions WHERE user_id = ? AND `+countedPullSQL+`
+		 GROUP BY image_name, registry, category
 		 ORDER BY COUNT(*) DESC LIMIT 10`, userID,
 	)
 	if err == nil {
@@ -307,7 +346,8 @@ func GetUserDashboardStats(userID int64, days int) (*DashboardStats, error) {
 	}
 	rows2, err := DB.Query(
 		`SELECT client_ip, COUNT(*), COALESCE(SUM(bytes_total),0), MAX(last_seen_at)
-		 FROM pull_sessions WHERE user_id = ? GROUP BY client_ip ORDER BY COUNT(*) DESC LIMIT 10`, userID,
+		 FROM pull_sessions WHERE user_id = ? AND `+countedPullSQL+`
+		 GROUP BY client_ip ORDER BY COUNT(*) DESC LIMIT 10`, userID,
 	)
 	if err == nil {
 		defer rows2.Close()
@@ -321,7 +361,7 @@ func GetUserDashboardStats(userID int64, days int) (*DashboardStats, error) {
 	sinceDay := time.Now().UTC().AddDate(0, 0, -days+1).Format("2006-01-02")
 	rows3, err := DB.Query(
 		`SELECT substr(started_at, 1, 10) as day, COUNT(*), COALESCE(SUM(bytes_total),0)
-		 FROM pull_sessions WHERE user_id = ? AND started_at >= ?
+		 FROM pull_sessions WHERE user_id = ? AND started_at >= ? AND `+countedPullSQL+`
 		 GROUP BY day ORDER BY day ASC`, userID, sinceDay,
 	)
 	if err == nil {
@@ -333,7 +373,7 @@ func GetUserDashboardStats(userID int64, days int) (*DashboardStats, error) {
 			}
 		}
 	}
-	recent, _, _ := ListPullSessions(PullListFilter{UserID: userID, Page: 1, PageSize: 8})
+	recent, _, _ := ListPullSessions(PullListFilter{UserID: userID, Page: 1, PageSize: 8, CountedOnly: true})
 	stats.RecentPulls = recent
 	if stats.TopImages == nil {
 		stats.TopImages = []ImageStat{}
@@ -363,19 +403,43 @@ func RecordPullEvent(sessionID, eventType, reference string, bytes int64, status
 	if err != nil {
 		return err
 	}
-	if bytes > 0 {
-		_, err = DB.Exec(
-			`UPDATE pull_sessions SET
-			   bytes_total = bytes_total + ?,
-			   layer_count = CASE WHEN ? = 'blob' THEN layer_count + 1 ELSE layer_count END,
-			   last_seen_at = ?
-			 WHERE id = ?`,
-			bytes, eventType, now, sessionID,
-		)
+
+	isBlob := eventType == "blob" || eventType == "blobs"
+	// Successful blob with body (or known size) counts as a real layer pull
+	countAsLayer := isBlob && statusCode >= 200 && statusCode < 300 && (bytes > 0 || statusCode == 200)
+
+	if bytes > 0 || countAsLayer {
+		var prevLayers int
+		_ = DB.QueryRow(`SELECT layer_count FROM pull_sessions WHERE id = ?`, sessionID).Scan(&prevLayers)
+
+		if bytes > 0 {
+			_, err = DB.Exec(
+				`UPDATE pull_sessions SET
+				   bytes_total = bytes_total + ?,
+				   layer_count = CASE WHEN ? THEN layer_count + 1 ELSE layer_count END,
+				   last_seen_at = ?
+				 WHERE id = ?`,
+				bytes, countAsLayer, now, sessionID,
+			)
+		} else {
+			_, err = DB.Exec(
+				`UPDATE pull_sessions SET
+				   layer_count = layer_count + 1,
+				   last_seen_at = ?
+				 WHERE id = ?`,
+				now, sessionID,
+			)
+		}
 		if err != nil {
 			return err
 		}
-		_ = bumpDailyBytes(now[:10], bytes)
+		if bytes > 0 {
+			_ = bumpDailyBytes(now[:10], bytes)
+		}
+		// First layer: this session becomes a countable pull
+		if countAsLayer && prevLayers == 0 {
+			_ = bumpDailyPull(now[:10])
+		}
 	} else {
 		_, _ = DB.Exec(`UPDATE pull_sessions SET last_seen_at = ? WHERE id = ?`, now, sessionID)
 	}
@@ -429,7 +493,7 @@ func CountPullsByIPInPeriod(ip string, periodHours float64) (int, error) {
 	since := time.Now().UTC().Add(-time.Duration(periodHours * float64(time.Hour))).Format(time.RFC3339Nano)
 	var n int
 	err := DB.QueryRow(
-		`SELECT COUNT(*) FROM pull_sessions WHERE client_ip = ? AND started_at >= ?`,
+		`SELECT COUNT(*) FROM pull_sessions WHERE client_ip = ? AND started_at >= ? AND `+countedPullSQL,
 		ip, since,
 	).Scan(&n)
 	return n, err
@@ -441,19 +505,20 @@ func GetDashboardStats(days int) (*DashboardStats, error) {
 	}
 	stats := &DashboardStats{}
 
-	_ = DB.QueryRow(`SELECT COUNT(*), COALESCE(SUM(bytes_total),0) FROM pull_sessions`).Scan(&stats.TotalPulls, &stats.TotalBytes)
-	_ = DB.QueryRow(`SELECT COUNT(DISTINCT client_ip) FROM pull_sessions`).Scan(&stats.UniqueIPs)
-	_ = DB.QueryRow(`SELECT COUNT(*) FROM pull_sessions WHERE status = 'active'`).Scan(&stats.ActivePulls)
+	_ = DB.QueryRow(`SELECT COUNT(*), COALESCE(SUM(bytes_total),0) FROM pull_sessions WHERE `+countedPullSQL).Scan(&stats.TotalPulls, &stats.TotalBytes)
+	_ = DB.QueryRow(`SELECT COUNT(DISTINCT client_ip) FROM pull_sessions WHERE ` + countedPullSQL).Scan(&stats.UniqueIPs)
+	_ = DB.QueryRow(`SELECT COUNT(*) FROM pull_sessions WHERE status = 'active' AND ` + countedPullSQL).Scan(&stats.ActivePulls)
 
-	today := time.Now().UTC().Format("2006-01-02")
+	sinceToday := LocalDayStart().UTC().Format(time.RFC3339Nano)
 	_ = DB.QueryRow(
-		`SELECT COUNT(*), COALESCE(SUM(bytes_total),0) FROM pull_sessions WHERE started_at LIKE ?`,
-		today+"%",
+		`SELECT COUNT(*), COALESCE(SUM(bytes_total),0) FROM pull_sessions WHERE started_at >= ? AND `+countedPullSQL,
+		sinceToday,
 	).Scan(&stats.TodayPulls, &stats.TodayBytes)
 
 	rows, err := DB.Query(
 		`SELECT image_name, registry, category, COUNT(*), COALESCE(SUM(bytes_total),0), COUNT(DISTINCT client_ip)
-		 FROM pull_sessions GROUP BY image_name, registry, category
+		 FROM pull_sessions WHERE ` + countedPullSQL + `
+		 GROUP BY image_name, registry, category
 		 ORDER BY COUNT(*) DESC LIMIT 10`,
 	)
 	if err == nil {
@@ -468,7 +533,8 @@ func GetDashboardStats(days int) (*DashboardStats, error) {
 
 	rows2, err := DB.Query(
 		`SELECT client_ip, COUNT(*), COALESCE(SUM(bytes_total),0), MAX(last_seen_at)
-		 FROM pull_sessions GROUP BY client_ip ORDER BY COUNT(*) DESC LIMIT 10`,
+		 FROM pull_sessions WHERE ` + countedPullSQL + `
+		 GROUP BY client_ip ORDER BY COUNT(*) DESC LIMIT 10`,
 	)
 	if err == nil {
 		defer rows2.Close()
@@ -482,7 +548,8 @@ func GetDashboardStats(days int) (*DashboardStats, error) {
 
 	rows3, err := DB.Query(
 		`SELECT category, COUNT(*), COALESCE(SUM(bytes_total),0)
-		 FROM pull_sessions GROUP BY category ORDER BY COUNT(*) DESC`,
+		 FROM pull_sessions WHERE ` + countedPullSQL + `
+		 GROUP BY category ORDER BY COUNT(*) DESC`,
 	)
 	if err == nil {
 		defer rows3.Close()
@@ -497,7 +564,7 @@ func GetDashboardStats(days int) (*DashboardStats, error) {
 	sinceDay := time.Now().UTC().AddDate(0, 0, -days+1).Format("2006-01-02")
 	rows4, err := DB.Query(
 		`SELECT substr(started_at, 1, 10) as day, COUNT(*), COALESCE(SUM(bytes_total),0)
-		 FROM pull_sessions WHERE started_at >= ?
+		 FROM pull_sessions WHERE started_at >= ? AND ` + countedPullSQL + `
 		 GROUP BY day ORDER BY day ASC`,
 		sinceDay,
 	)
@@ -511,7 +578,7 @@ func GetDashboardStats(days int) (*DashboardStats, error) {
 		}
 	}
 
-	recent, _, err := ListPullSessions(PullListFilter{Page: 1, PageSize: 8})
+	recent, _, err := ListPullSessions(PullListFilter{Page: 1, PageSize: 8, CountedOnly: true})
 	if err == nil {
 		stats.RecentPulls = recent
 	}
@@ -574,6 +641,9 @@ func ListPullSessions(f PullListFilter) ([]PullSession, int, error) {
 	if f.UserID > 0 {
 		where = append(where, "user_id = ?")
 		args = append(args, f.UserID)
+	}
+	if f.CountedOnly {
+		where = append(where, countedPullSQL)
 	}
 	clause := strings.Join(where, " AND ")
 
