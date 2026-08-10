@@ -7,6 +7,7 @@ import Select from '@/components/ui/Select.vue'
 import Card from '@/components/ui/Card.vue'
 import CardContent from '@/components/ui/CardContent.vue'
 import Badge from '@/components/ui/Badge.vue'
+import DataTable from '@/components/ui/DataTable.vue'
 import { adminApi, formatBytes, formatTime, type PullSession } from '../api'
 
 const categoryOptions = [
@@ -57,8 +58,6 @@ async function openDetail(id: string) {
 
 onMounted(load)
 watch(page, load)
-
-const pages = () => Math.max(1, Math.ceil(total.value / pageSize))
 </script>
 
 <template>
@@ -74,48 +73,46 @@ const pages = () => Math.max(1, Math.ceil(total.value / pageSize))
     </Card>
 
     <Card>
-      <CardContent class="overflow-x-auto pt-5">
-        <table class="w-full text-sm">
-          <thead class="text-left text-muted-foreground">
+      <CardContent class="pt-5">
+        <DataTable
+          v-model:page="page"
+          min-width="720px"
+          max-height="28rem"
+          :paginate="total > pageSize"
+          :total="total"
+          :page-size="pageSize"
+        >
+          <template #head>
             <tr>
-              <th class="pb-2">开始时间</th>
-              <th class="pb-2">镜像</th>
-              <th class="pb-2">IP</th>
-              <th class="pb-2">类别</th>
-              <th class="pb-2">层/请求</th>
-              <th class="pb-2">流量</th>
-              <th class="pb-2">状态</th>
-              <th class="pb-2"></th>
+              <th class="px-3 py-2.5 font-medium whitespace-nowrap">开始时间</th>
+              <th class="px-3 py-2.5 font-medium">镜像</th>
+              <th class="px-3 py-2.5 font-medium whitespace-nowrap">IP</th>
+              <th class="px-3 py-2.5 font-medium whitespace-nowrap">类别</th>
+              <th class="px-3 py-2.5 font-medium whitespace-nowrap">层/请求</th>
+              <th class="px-3 py-2.5 font-medium whitespace-nowrap">流量</th>
+              <th class="px-3 py-2.5 font-medium whitespace-nowrap">状态</th>
+              <th class="px-3 py-2.5 font-medium whitespace-nowrap"></th>
             </tr>
-          </thead>
-          <tbody>
-            <tr v-for="p in items" :key="p.id" class="border-t border-border">
-              <td class="py-2 whitespace-nowrap">{{ formatTime(p.started_at) }}</td>
-              <td class="py-2">
-                <div class="font-medium">{{ p.image_name }}:{{ p.tag }}</div>
-                <div class="text-xs text-muted-foreground">{{ p.registry }}</div>
-              </td>
-              <td class="py-2 font-mono text-xs">{{ p.client_ip }}</td>
-              <td class="py-2"><Badge variant="secondary">{{ p.category }}</Badge></td>
-              <td class="py-2">{{ p.layer_count }} / {{ p.request_count }}</td>
-              <td class="py-2">{{ formatBytes(p.bytes_total) }}</td>
-              <td class="py-2">
-                <Badge :variant="p.status === 'active' ? 'success' : 'outline'">{{ p.status }}</Badge>
-              </td>
-              <td class="py-2">
-                <Button size="sm" variant="ghost" @click="openDetail(p.id)">详情</Button>
-              </td>
-            </tr>
-          </tbody>
-        </table>
-        <div class="mt-4 flex items-center justify-between text-sm">
-          <span class="text-muted-foreground">共 {{ total }} 条</span>
-          <div class="flex gap-2">
-            <Button size="sm" variant="outline" :disabled="page <= 1" @click="page--">上一页</Button>
-            <span class="px-2 py-1">{{ page }} / {{ pages() }}</span>
-            <Button size="sm" variant="outline" :disabled="page >= pages()" @click="page++">下一页</Button>
-          </div>
-        </div>
+          </template>
+          <tr v-for="p in items" :key="p.id" class="border-t border-border/70">
+            <td class="px-3 py-2.5 whitespace-nowrap">{{ formatTime(p.started_at) }}</td>
+            <td class="max-w-[14rem] px-3 py-2.5">
+              <div class="truncate font-medium" :title="`${p.image_name}:${p.tag}`">{{ p.image_name }}:{{ p.tag }}</div>
+              <div class="truncate text-xs text-muted-foreground">{{ p.registry }}</div>
+            </td>
+            <td class="px-3 py-2.5 font-mono text-xs whitespace-nowrap">{{ p.client_ip }}</td>
+            <td class="px-3 py-2.5 whitespace-nowrap"><Badge variant="secondary">{{ p.category }}</Badge></td>
+            <td class="px-3 py-2.5 whitespace-nowrap">{{ p.layer_count }} / {{ p.request_count }}</td>
+            <td class="px-3 py-2.5 whitespace-nowrap">{{ formatBytes(p.bytes_total) }}</td>
+            <td class="px-3 py-2.5 whitespace-nowrap">
+              <Badge :variant="p.status === 'active' ? 'success' : 'outline'">{{ p.status }}</Badge>
+            </td>
+            <td class="px-3 py-2.5 whitespace-nowrap">
+              <Button size="sm" variant="ghost" @click="openDetail(p.id)">详情</Button>
+            </td>
+          </tr>
+        </DataTable>
+        <p v-if="!items.length && !loading" class="py-6 text-center text-sm text-muted-foreground">暂无记录</p>
       </CardContent>
     </Card>
 

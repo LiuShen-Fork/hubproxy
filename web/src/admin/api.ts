@@ -133,6 +133,51 @@ export interface RegistryToggle {
   label: string
 }
 
+export interface AdminAccountSettings {
+  form_register_enabled: boolean
+  register_enabled?: boolean
+  oauth_login_enabled: boolean
+  oauth_register_enabled: boolean
+  email_register_enabled?: boolean
+}
+
+export interface SiteSettingsApi {
+  name: string
+  full_name: string
+  tagline: string
+  description: string
+  author_home?: string
+  icp_text: string
+  police_text: string
+  announcement?: string
+  project_name?: string
+  project_url?: string
+  icp_url?: string
+  police_url?: string
+}
+
+export interface OAuthSettingsApi {
+  enabled: boolean
+  client_id: string
+  client_secret: string
+  auth_url: string
+  token_url: string
+  user_info_url: string
+  scopes: string
+  display_name: string
+}
+
+export interface EmailSettingsApi {
+  enabled: boolean
+  smtp_host: string
+  smtp_port: number
+  username: string
+  password: string
+  from: string
+  from_name: string
+  use_tls: boolean
+}
+
 export interface SettingsBundle {
   rate_limit: {
     request_limit: number
@@ -141,14 +186,34 @@ export interface SettingsBundle {
   }
   security: { white_list: string[]; black_list: string[] }
   access: { white_list: string[]; black_list: string[]; proxy: string }
-  admin: { register_enabled: boolean }
-  pull_session: { window_minutes: number; idle_minutes: number; re_pull_gap_seconds?: number }
+  admin: AdminAccountSettings
+  pull_session: {
+    window_minutes: number
+    idle_minutes: number
+    manifest_probe_seconds?: number
+    re_pull_gap_seconds?: number
+  }
   features: FeatureToggles
   registries: RegistryToggle[]
+  site: SiteSettingsApi
+  oauth: OAuthSettingsApi
+  email?: EmailSettingsApi
+  oauth_redirect_url?: string
 }
 
 export const adminApi = {
-  publicConfig: () => request<{ register_enabled: boolean }>('/public-config'),
+  publicConfig: () =>
+    request<{
+      register_enabled: boolean
+      form_register_enabled: boolean
+      oauth_login_enabled: boolean
+      oauth_register_enabled: boolean
+      oauth_bind_enabled: boolean
+      email_register_enabled: boolean
+      oauth: { enabled: boolean; ready: boolean; display_name: string }
+      oauth_redirect_url?: string
+      site: SiteSettingsApi
+    }>('/public-config'),
   login: (username: string, password: string) =>
     request<{ token: string; user: User }>('/login', {
       method: 'POST',
@@ -170,10 +235,10 @@ export const adminApi = {
       method: 'POST',
       body: JSON.stringify(body),
     }),
-  register: (username: string, password: string) =>
+  register: (username: string, password: string, email?: string, code?: string) =>
     request<{ user: User }>('/register', {
       method: 'POST',
-      body: JSON.stringify({ username, password }),
+      body: JSON.stringify({ username, password, email, code }),
     }),
   dashboard: (days = 14) => request<DashboardStats>(`/dashboard?days=${days}`),
   pulls: (q: Record<string, string | number | undefined>) => {
@@ -216,12 +281,37 @@ export const adminApi = {
     request('/settings/access', { method: 'PUT', body: JSON.stringify(body) }),
   putAdmin: (body: SettingsBundle['admin']) =>
     request('/settings/admin', { method: 'PUT', body: JSON.stringify(body) }),
+  putSite: (body: SiteSettingsApi) =>
+    request('/settings/site', { method: 'PUT', body: JSON.stringify(body) }),
+  putOAuth: (body: OAuthSettingsApi) =>
+    request('/settings/oauth', { method: 'PUT', body: JSON.stringify(body) }),
+  putEmail: (body: EmailSettingsApi) =>
+    request('/settings/email', { method: 'PUT', body: JSON.stringify(body) }),
+  testEmail: (to?: string) =>
+    request<{ ok: boolean; message?: string }>('/settings/email/test', {
+      method: 'POST',
+      body: JSON.stringify({ to: to || '' }),
+    }),
+  sendRegisterCode: (email: string) =>
+    request<{ ok: boolean; message?: string }>('/register/send-code', {
+      method: 'POST',
+      body: JSON.stringify({ email }),
+    }),
   putPullSession: (body: SettingsBundle['pull_session']) =>
     request('/settings/pull-session', { method: 'PUT', body: JSON.stringify(body) }),
   putFeatures: (body: FeatureToggles) =>
     request('/settings/features', { method: 'PUT', body: JSON.stringify(body) }),
   putRegistries: (body: RegistryToggle[]) =>
     request('/settings/registries', { method: 'PUT', body: JSON.stringify(body) }),
+  oauthBindings: () =>
+    request<{ items: Array<{ id: number; provider: string; subject: string; email?: string; display_name?: string }> }>(
+      '/user/oauth/bindings',
+    ),
+  oauthUnbind: (provider: string) =>
+    request<{ items: Array<{ id: number; provider: string; subject: string; email?: string; display_name?: string }> }>(
+      `/user/oauth/bindings?provider=${encodeURIComponent(provider)}`,
+      { method: 'DELETE' },
+    ),
   addBlackIP: (ip: string) =>
     request('/security/blacklist', { method: 'POST', body: JSON.stringify({ ip }) }),
   removeBlackIP: (ip: string) =>
@@ -247,6 +337,7 @@ export const adminApi = {
       token: { token: string; user_id: number; status: string; created_at: string }
       examples: Record<string, string>
       require_token: boolean
+      public_mirror?: boolean
     }>('/user/token'),
   resetUserToken: () =>
     request<{
@@ -274,6 +365,7 @@ export const adminApi = {
       host: string
       token: string
       require_token: boolean
+      public_mirror?: boolean
       examples: Record<string, string>
       notes: string[]
     }>('/user/guide'),

@@ -14,6 +14,9 @@ func RegisterAdminRoutes(r *gin.Engine) {
 	r.GET("/api/admin/public-config", AuthPublicConfig)
 	r.POST("/api/admin/login", AuthLogin)
 	r.POST("/api/admin/register", AuthRegister)
+	r.POST("/api/admin/register/send-code", AuthSendRegisterCode)
+	r.GET("/api/admin/oauth/start", OAuthStart)
+	r.GET("/api/admin/oauth/callback", OAuthCallback)
 
 	// Authenticated (user + admin)
 	auth := r.Group("/api/admin")
@@ -35,6 +38,9 @@ func RegisterAdminRoutes(r *gin.Engine) {
 		auth.POST("/user/ip-whitelist", UserAddIPWhitelist)
 		auth.DELETE("/user/ip-whitelist", UserRemoveIPWhitelist)
 		auth.GET("/user/guide", UserGuide)
+		auth.GET("/user/oauth/bindings", OAuthListBindings)
+		auth.DELETE("/user/oauth/bindings", OAuthUnbind)
+		// bind uses same /oauth/start?mode=bind with auth header/cookie
 	}
 
 	// Admin only
@@ -57,6 +63,10 @@ func RegisterAdminRoutes(r *gin.Engine) {
 		adminOnly.PUT("/settings/security", AdminPutSecurity)
 		adminOnly.PUT("/settings/access", AdminPutAccess)
 		adminOnly.PUT("/settings/admin", AdminPutAdmin)
+		adminOnly.PUT("/settings/site", AdminPutSite)
+		adminOnly.PUT("/settings/oauth", AdminPutOAuth)
+		adminOnly.PUT("/settings/email", AdminPutEmail)
+		adminOnly.POST("/settings/email/test", AdminTestEmail)
 		adminOnly.PUT("/settings/pull-session", AdminPutPullSession)
 		adminOnly.PUT("/settings/features", AdminPutFeatures)
 		adminOnly.PUT("/settings/registries", AdminPutRegistries)
@@ -238,15 +248,77 @@ func AdminDeleteUser(c *gin.Context) {
 
 func AdminGetSettings(c *gin.Context) {
 	rl, sec, acc, adm, ps := db.GlobalRuntime.Snapshot()
+	oauth := db.GlobalRuntime.GetOAuth()
+	oauthView := oauth
+	if oauthView.ClientSecret != "" {
+		oauthView.ClientSecret = "********"
+	}
+	email := db.GlobalRuntime.GetEmail()
+	emailView := email
+	if emailView.Password != "" {
+		emailView.Password = "********"
+	}
+	scheme := "http"
+	if c.Request.TLS != nil || strings.EqualFold(c.GetHeader("X-Forwarded-Proto"), "https") {
+		scheme = "https"
+	}
+	host := c.Request.Host
+	if xf := c.GetHeader("X-Forwarded-Host"); xf != "" {
+		host = xf
+	}
 	c.JSON(http.StatusOK, gin.H{
-		"rate_limit":   rl,
-		"security":     sec,
-		"access":       acc,
-		"admin":        adm,
-		"pull_session": ps,
-		"features":     db.GlobalRuntime.GetFeatures(),
-		"registries":   db.GlobalRuntime.GetRegistries(),
+		"rate_limit":         rl,
+		"security":           sec,
+		"access":             acc,
+		"admin":              adm,
+		"pull_session":       ps,
+		"features":           db.GlobalRuntime.GetFeatures(),
+		"registries":         db.GlobalRuntime.GetRegistries(),
+		"site":               db.GlobalRuntime.GetSite(),
+		"oauth":              oauthView,
+		"email":              emailView,
+		"oauth_redirect_url": scheme + "://" + host + "/api/admin/oauth/callback",
 	})
+}
+
+func AdminPutSite(c *gin.Context) {
+	var req db.SiteSettings
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "参数无效"})
+		return
+	}
+	if strings.TrimSpace(req.Name) == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "站点名称不能为空"})
+		return
+	}
+	if err := db.SetSetting(db.KeySite, req); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	db.GlobalRuntime.Reload()
+	c.JSON(http.StatusOK, gin.H{"site": db.GlobalRuntime.GetSite()})
+}
+
+func AdminPutOAuth(c *gin.Context) {
+	var req db.OAuthSettings
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "参数无效"})
+		return
+	}
+	prev := db.GlobalRuntime.GetOAuth()
+	if req.ClientSecret == "" || req.ClientSecret == "********" {
+		req.ClientSecret = prev.ClientSecret
+	}
+	if err := db.SetSetting(db.KeyOAuth, req); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	db.GlobalRuntime.Reload()
+	out := db.GlobalRuntime.GetOAuth()
+	if out.ClientSecret != "" {
+		out.ClientSecret = "********"
+	}
+	c.JSON(http.StatusOK, gin.H{"oauth": out})
 }
 
 func AdminPutFeatures(c *gin.Context) {
@@ -350,6 +422,11 @@ func AdminPutAdmin(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "参数无效"})
 		return
 	}
+	if req.FormRegisterEnabled {
+		req.RegisterEnabled = true
+	} else {
+		req.RegisterEnabled = false
+	}
 	if err := db.SetSetting(db.KeyAdmin, req); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -370,8 +447,8 @@ func AdminPutPullSession(c *gin.Context) {
 	if req.IdleMinutes < 1 {
 		req.IdleMinutes = 30
 	}
-	if req.RePullGapSeconds < 30 {
-		req.RePullGapSeconds = 120
+	if req.ManifestProbeSeconds < 15 {
+		req.ManifestProbeSeconds = 60
 	}
 	if err := db.SetSetting(db.KeyPullSession, req); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})

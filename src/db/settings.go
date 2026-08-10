@@ -15,6 +15,16 @@ const (
 	KeyPullSession = "pull_session"
 	KeyFeatures    = "features"
 	KeyRegistries  = "registries"
+	KeySite        = "site"
+	KeyOAuth       = "oauth"
+	KeyEmail       = "email"
+)
+
+const (
+	FixedICPURL    = "https://beian.miit.gov.cn/"
+	FixedPoliceURL = "https://beian.mps.gov.cn/#/query/webSearch?code="
+	ProjectGitHub  = "https://github.com/LiuShen-Fork/hubproxy"
+	ProjectName    = "HubProxy"
 )
 
 type RateLimitSettings struct {
@@ -36,17 +46,126 @@ type AccessSettings struct {
 }
 
 type AdminSettings struct {
+	// FormRegisterEnabled: allow username/password self-register on login page
+	FormRegisterEnabled bool `json:"form_register_enabled"`
+	// RegisterEnabled kept for backward compat (same as form_register_enabled)
 	RegisterEnabled bool `json:"register_enabled"`
+	// OAuthLoginEnabled: allow OAuth2 login for existing bindings
+	OAuthLoginEnabled bool `json:"oauth_login_enabled"`
+	// OAuthRegisterEnabled: allow creating new users via OAuth2
+	OAuthRegisterEnabled bool `json:"oauth_register_enabled"`
+	// EmailRegisterEnabled: require/use email verification for form registration
+	EmailRegisterEnabled bool `json:"email_register_enabled"`
+}
+
+// FormRegisterAllowed is the effective form registration switch.
+func (a AdminSettings) FormRegisterAllowed() bool {
+	return a.FormRegisterEnabled || a.RegisterEnabled
+}
+
+// OAuthBindAllowed: bind is always on when OAuth provider is enabled.
+func (a AdminSettings) OAuthBindAllowed() bool {
+	return true
+}
+
+type SiteSettings struct {
+	Name         string `json:"name"`
+	FullName     string `json:"full_name"`
+	Tagline      string `json:"tagline"`
+	Description  string `json:"description"`
+	AuthorHome   string `json:"author_home"` // fixed display link label uses HubProxy project
+	ICPText      string `json:"icp_text"`
+	PoliceText   string `json:"police_text"`
+	Announcement string `json:"announcement"` // HTML, empty = no popup
+}
+
+type OAuthSettings struct {
+	Enabled      bool   `json:"enabled"`
+	ClientID     string `json:"client_id"`
+	ClientSecret string `json:"client_secret"`
+	AuthURL      string `json:"auth_url"`
+	TokenURL     string `json:"token_url"`
+	UserInfoURL  string `json:"user_info_url"`
+	Scopes       string `json:"scopes"`
+	DisplayName  string `json:"display_name"`
+}
+
+type EmailSettings struct {
+	Enabled  bool   `json:"enabled"`
+	SMTPHost string `json:"smtp_host"`
+	SMTPPort int    `json:"smtp_port"`
+	Username string `json:"username"`
+	Password string `json:"password"`
+	From     string `json:"from"`
+	FromName string `json:"from_name"`
+	// UseTLS: STARTTLS on port 587 typically; if port 465 use implicit SSL
+	UseTLS bool `json:"use_tls"`
+}
+
+func DefaultSiteSettings() SiteSettings {
+	return SiteSettings{
+		Name:         "镜像加速",
+		FullName:     "自建多源镜像",
+		Tagline:      "",
+		Description:  "多源镜像加速服务，支持 Docker、GitHub、Hugging Face。",
+		AuthorHome:   "https://www.liushen.fun/",
+		ICPText:      "",
+		PoliceText:   "",
+		Announcement: "",
+	}
+}
+
+func DefaultOAuthSettings() OAuthSettings {
+	return OAuthSettings{
+		Enabled:     false,
+		Scopes:      "openid profile email",
+		DisplayName: "OAuth2 登录",
+	}
+}
+
+func DefaultEmailSettings() EmailSettings {
+	return EmailSettings{
+		Enabled:  false,
+		SMTPPort: 587,
+		UseTLS:   true,
+		FromName: "HubProxy",
+	}
+}
+
+func DefaultAdminSettings() AdminSettings {
+	return AdminSettings{
+		FormRegisterEnabled:  false,
+		RegisterEnabled:      false,
+		OAuthLoginEnabled:    false,
+		OAuthRegisterEnabled: false,
+		EmailRegisterEnabled: false,
+	}
+}
+
+// PoliceBeianURL builds fixed MPS query URL from police record number digits/code.
+func PoliceBeianURL(policeText string) string {
+	// extract trailing digits if possible, else use full text as code query
+	code := ""
+	for _, r := range policeText {
+		if r >= '0' && r <= '9' {
+			code += string(r)
+		}
+	}
+	if code == "" {
+		return "https://beian.mps.gov.cn/"
+	}
+	return FixedPoliceURL + code
 }
 
 type PullSessionSettings struct {
-	// WindowMinutes: how long to keep a session "active" for matching same pull's layers
+	// WindowMinutes: match uncounted session for same IP+image (manifest→blob glue)
 	WindowMinutes int `json:"window_minutes"`
-	// IdleMinutes: mark active session completed after idle
+	// IdleMinutes: mark counted active sessions completed after idle
 	IdleMinutes int `json:"idle_minutes"`
-	// RePullGapSeconds: if a session already downloaded layers and is idle this long,
-	// a new tag-manifest starts a new countable pull (second docker pull).
-	RePullGapSeconds int `json:"re_pull_gap_seconds"`
+	// ManifestProbeSeconds: delete manifest-only sessions with no blob after this idle
+	ManifestProbeSeconds int `json:"manifest_probe_seconds"`
+	// RePullGapSeconds kept for UI/API compatibility (ignored: re-pull always new after first blob)
+	RePullGapSeconds int `json:"re_pull_gap_seconds,omitempty"`
 }
 
 // FeatureToggles controls each acceleration path.
@@ -132,13 +251,14 @@ func EnsureDefaultSettings(rateLimit RateLimitSettings, security SecuritySetting
 		KeyRateLimit: rateLimit,
 		KeySecurity:  security,
 		KeyAccess:    access,
-		KeyAdmin: AdminSettings{
-			RegisterEnabled: false,
-		},
+		KeyAdmin:       DefaultAdminSettings(),
+		KeySite:        DefaultSiteSettings(),
+		KeyOAuth:       DefaultOAuthSettings(),
+		KeyEmail:       DefaultEmailSettings(),
 		KeyPullSession: PullSessionSettings{
-			WindowMinutes:    15,
-			IdleMinutes:      30,
-			RePullGapSeconds: 120,
+			WindowMinutes:        15,
+			IdleMinutes:          30,
+			ManifestProbeSeconds: 60,
 		},
 		KeyFeatures:   DefaultFeatureToggles(),
 		KeyRegistries: DefaultRegistryToggles(),
@@ -232,23 +352,143 @@ func LoadAccess() AccessSettings {
 }
 
 func LoadAdmin() AdminSettings {
+	def := DefaultAdminSettings()
 	var s AdminSettings
 	if err := GetSetting(KeyAdmin, &s); err != nil {
-		return AdminSettings{RegisterEnabled: false}
+		return def
+	}
+	// sync legacy register_enabled → form_register_enabled
+	if s.RegisterEnabled && !s.FormRegisterEnabled {
+		s.FormRegisterEnabled = true
+	}
+	if s.FormRegisterEnabled {
+		s.RegisterEnabled = true
 	}
 	return s
+}
+
+func LoadSite() SiteSettings {
+	def := DefaultSiteSettings()
+	var s SiteSettings
+	if err := GetSetting(KeySite, &s); err != nil {
+		return def
+	}
+	if s.Name == "" {
+		s.Name = def.Name
+	}
+	if s.FullName == "" {
+		s.FullName = def.FullName
+	}
+	// migrate old fields if present via raw map
+	var raw map[string]any
+	if GetSetting(KeySite, &raw) == nil {
+		if s.AuthorHome == "" {
+			if v, ok := raw["home_url"].(string); ok {
+				s.AuthorHome = v
+			}
+		}
+		// strip legacy owner/blog from public use
+	}
+	return s
+}
+
+func LoadOAuth() OAuthSettings {
+	def := DefaultOAuthSettings()
+	var s OAuthSettings
+	if err := GetSetting(KeyOAuth, &s); err != nil {
+		return def
+	}
+	if s.Scopes == "" {
+		s.Scopes = def.Scopes
+	}
+	if s.DisplayName == "" {
+		s.DisplayName = def.DisplayName
+	}
+	// migrate legacy github provider endpoints
+	var raw map[string]any
+	if GetSetting(KeyOAuth, &raw) == nil {
+		if p, ok := raw["provider"].(string); ok && p == "github" {
+			if s.AuthURL == "" {
+				s.AuthURL = "https://github.com/login/oauth/authorize"
+			}
+			if s.TokenURL == "" {
+				s.TokenURL = "https://github.com/login/oauth/access_token"
+			}
+			if s.UserInfoURL == "" {
+				s.UserInfoURL = "https://api.github.com/user"
+			}
+			if s.Scopes == "openid profile email" {
+				s.Scopes = "read:user user:email"
+			}
+		}
+	}
+	return s
+}
+
+func LoadEmail() EmailSettings {
+	def := DefaultEmailSettings()
+	var s EmailSettings
+	if err := GetSetting(KeyEmail, &s); err != nil {
+		return def
+	}
+	if s.SMTPPort <= 0 {
+		s.SMTPPort = 587
+	}
+	return s
+}
+
+// PublicOAuthView is safe to expose to browsers (no secrets).
+func (o OAuthSettings) PublicView() map[string]any {
+	ready := o.Enabled && o.ClientID != "" && o.ClientSecret != "" &&
+		o.AuthURL != "" && o.TokenURL != "" && o.UserInfoURL != ""
+	return map[string]any{
+		"enabled":      o.Enabled && ready,
+		"ready":        ready,
+		"display_name": o.DisplayName,
+	}
+}
+
+// PublicSiteView builds public site payload with fixed URLs.
+func (s SiteSettings) PublicSiteView() map[string]any {
+	icpURL := ""
+	if s.ICPText != "" {
+		icpURL = FixedICPURL
+	}
+	policeURL := ""
+	if s.PoliceText != "" {
+		policeURL = PoliceBeianURL(s.PoliceText)
+	}
+	return map[string]any{
+		"name":         s.Name,
+		"full_name":    s.FullName,
+		"tagline":      s.Tagline,
+		"description":  s.Description,
+		"author_home":  s.AuthorHome,
+		"project_name": ProjectName,
+		"project_url":  ProjectGitHub,
+		"icp_text":     s.ICPText,
+		"icp_url":      icpURL,
+		"police_text":  s.PoliceText,
+		"police_url":   policeURL,
+		"announcement": s.Announcement,
+	}
 }
 
 func LoadPullSession() PullSessionSettings {
 	var s PullSessionSettings
 	if err := GetSetting(KeyPullSession, &s); err != nil || s.WindowMinutes <= 0 {
-		return PullSessionSettings{WindowMinutes: 15, IdleMinutes: 30, RePullGapSeconds: 120}
+		return PullSessionSettings{WindowMinutes: 15, IdleMinutes: 30, ManifestProbeSeconds: 60}
 	}
 	if s.IdleMinutes <= 0 {
 		s.IdleMinutes = 30
 	}
-	if s.RePullGapSeconds <= 0 {
-		s.RePullGapSeconds = 120
+	if s.ManifestProbeSeconds <= 0 {
+		// migrate old re_pull_gap or default 60s
+		if s.RePullGapSeconds > 0 && s.RePullGapSeconds < 600 {
+			s.ManifestProbeSeconds = 60
+		} else {
+			s.ManifestProbeSeconds = 60
+		}
 	}
 	return s
 }

@@ -6,6 +6,7 @@ import Select from '@/components/ui/Select.vue'
 import Card from '@/components/ui/Card.vue'
 import CardContent from '@/components/ui/CardContent.vue'
 import Badge from '@/components/ui/Badge.vue'
+import DataTable from '@/components/ui/DataTable.vue'
 import { adminApi, formatBytes } from '../api'
 
 const categoryOptions = [
@@ -17,6 +18,7 @@ const categoryOptions = [
 const items = ref<any[]>([])
 const total = ref(0)
 const page = ref(1)
+const pageSize = 20
 const image = ref('')
 const category = ref('')
 const registry = ref('')
@@ -24,7 +26,7 @@ const registry = ref('')
 async function load() {
   const res = await adminApi.images({
     page: page.value,
-    page_size: 20,
+    page_size: pageSize,
     image: image.value,
     category: category.value,
     registry: registry.value,
@@ -35,7 +37,6 @@ async function load() {
 
 onMounted(load)
 watch(page, load)
-const pages = () => Math.max(1, Math.ceil(total.value / 20))
 </script>
 
 <template>
@@ -49,37 +50,35 @@ const pages = () => Math.max(1, Math.ceil(total.value / 20))
       </CardContent>
     </Card>
     <Card>
-      <CardContent class="overflow-x-auto pt-5">
-        <table class="w-full text-sm">
-          <thead class="text-left text-muted-foreground">
+      <CardContent class="pt-5">
+        <DataTable
+          v-model:page="page"
+          min-width="640px"
+          max-height="28rem"
+          :paginate="total > pageSize"
+          :total="total"
+          :page-size="pageSize"
+        >
+          <template #head>
             <tr>
-              <th class="pb-2">镜像</th>
-              <th class="pb-2">Registry</th>
-              <th class="pb-2">类别</th>
-              <th class="pb-2">拉取次数</th>
-              <th class="pb-2">独立 IP</th>
-              <th class="pb-2">总流量</th>
+              <th class="px-3 py-2.5 font-medium">镜像</th>
+              <th class="px-3 py-2.5 font-medium">Registry</th>
+              <th class="px-3 py-2.5 font-medium whitespace-nowrap">类别</th>
+              <th class="px-3 py-2.5 font-medium whitespace-nowrap">拉取次数</th>
+              <th class="px-3 py-2.5 font-medium whitespace-nowrap">独立 IP</th>
+              <th class="px-3 py-2.5 font-medium whitespace-nowrap">总流量</th>
             </tr>
-          </thead>
-          <tbody>
-            <tr v-for="it in items" :key="it.registry + it.image_name" class="border-t border-border">
-              <td class="py-2 font-medium">{{ it.image_name }}</td>
-              <td class="py-2">{{ it.registry }}</td>
-              <td class="py-2"><Badge variant="secondary">{{ it.category }}</Badge></td>
-              <td class="py-2">{{ it.pull_count }}</td>
-              <td class="py-2">{{ it.unique_ips }}</td>
-              <td class="py-2">{{ formatBytes(it.bytes_total) }}</td>
-            </tr>
-          </tbody>
-        </table>
-        <div class="mt-4 flex items-center justify-between text-sm">
-          <span class="text-muted-foreground">共 {{ total }} 条</span>
-          <div class="flex gap-2">
-            <Button size="sm" variant="outline" :disabled="page <= 1" @click="page--">上一页</Button>
-            <span class="px-2 py-1">{{ page }} / {{ pages() }}</span>
-            <Button size="sm" variant="outline" :disabled="page >= pages()" @click="page++">下一页</Button>
-          </div>
-        </div>
+          </template>
+          <tr v-for="it in items" :key="it.registry + it.image_name" class="border-t border-border/70">
+            <td class="max-w-[12rem] truncate px-3 py-2.5 font-medium" :title="it.image_name">{{ it.image_name }}</td>
+            <td class="max-w-[10rem] truncate px-3 py-2.5" :title="it.registry">{{ it.registry }}</td>
+            <td class="px-3 py-2.5 whitespace-nowrap"><Badge variant="secondary">{{ it.category }}</Badge></td>
+            <td class="px-3 py-2.5 whitespace-nowrap">{{ it.pull_count }}</td>
+            <td class="px-3 py-2.5 whitespace-nowrap">{{ it.unique_ips }}</td>
+            <td class="px-3 py-2.5 whitespace-nowrap">{{ formatBytes(it.bytes_total) }}</td>
+          </tr>
+        </DataTable>
+        <p v-if="!items.length" class="py-6 text-center text-sm text-muted-foreground">暂无数据</p>
       </CardContent>
     </Card>
   </div>

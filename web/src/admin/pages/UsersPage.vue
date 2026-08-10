@@ -9,8 +9,11 @@ import CardContent from '@/components/ui/CardContent.vue'
 import CardHeader from '@/components/ui/CardHeader.vue'
 import CardTitle from '@/components/ui/CardTitle.vue'
 import Badge from '@/components/ui/Badge.vue'
+import DataTable from '@/components/ui/DataTable.vue'
 import { adminApi, formatTime, type User } from '../api'
 import { useAuth } from '../auth'
+import { toastError, toastSuccess } from '@/lib/toast'
+import { pageSlice } from '@/lib/table'
 
 const roleOptions = [
   { value: 'user', label: '普通用户' },
@@ -21,8 +24,8 @@ const items = ref<User[]>([])
 const username = ref('')
 const password = ref('')
 const role = ref('user')
-const msg = ref('')
-const err = ref('')
+const tablePage = ref(1)
+const tablePageSize = 10
 const { user: me } = useAuth()
 
 async function load() {
@@ -31,68 +34,68 @@ async function load() {
 }
 
 async function create() {
-  err.value = ''
   try {
     await adminApi.createUser({ username: username.value, password: password.value, role: role.value })
     username.value = ''
     password.value = ''
-    msg.value = '用户已创建'
+    toastSuccess('用户已创建')
     await load()
   } catch (e: any) {
-    err.value = e?.message || '创建失败'
+    toastError(e?.message || '创建失败')
   }
 }
 
 async function remove(id: number) {
-  if (!confirm('确认删除该用户？')) return
+  if (!window.confirm('确认删除该用户？')) return
   try {
     await adminApi.deleteUser(id)
+    toastSuccess('已删除')
     await load()
   } catch (e: any) {
-    err.value = e?.message || '删除失败'
+    toastError(e?.message || '删除失败')
   }
 }
 
 async function resetPwd(u: User) {
-  const pwd = prompt(`为 ${u.username} 设置新密码（至少 8 位）`)
+  const pwd = window.prompt(`为 ${u.username} 设置新密码（至少 8 位）`)
   if (!pwd) return
   try {
     await adminApi.updateUser(u.id, { password: pwd })
-    msg.value = '密码已重置'
+    toastSuccess('密码已重置')
   } catch (e: any) {
-    err.value = e?.message || '重置失败'
+    toastError(e?.message || '重置失败')
   }
 }
 
 async function renameUser(u: User) {
-  const name = prompt(`修改 ${u.username} 的用户名`, u.username)
+  const name = window.prompt(`修改 ${u.username} 的用户名`, u.username)
   if (!name || name.trim() === u.username) return
   try {
     await adminApi.updateUser(u.id, { username: name.trim() })
-    msg.value = '用户名已更新'
+    toastSuccess('用户名已更新')
     await load()
   } catch (e: any) {
-    err.value = e?.message || '修改失败'
+    toastError(e?.message || '修改失败')
   }
 }
 
 async function setLimit(u: User) {
-  const raw = prompt(
+  const raw = window.prompt(
     `设置 ${u.username} 的每日拉取上限（0=不限制，默认 30）`,
     String(u.daily_pull_limit ?? 30),
   )
   if (raw == null) return
   const n = Number(raw)
   if (!Number.isFinite(n) || n < 0 || !Number.isInteger(n)) {
-    err.value = '请输入非负整数'
+    toastError('请输入非负整数')
     return
   }
   try {
     await adminApi.updateUser(u.id, { daily_pull_limit: n })
-    msg.value = '每日限流已更新'
+    toastSuccess('每日限流已更新')
     await load()
   } catch (e: any) {
-    err.value = e?.message || '更新失败'
+    toastError(e?.message || '更新失败')
   }
 }
 
@@ -101,8 +104,6 @@ onMounted(load)
 
 <template>
   <div class="space-y-4">
-    <p v-if="msg" class="text-sm text-emerald-600">{{ msg }}</p>
-    <p v-if="err" class="text-sm text-destructive">{{ err }}</p>
 
     <Card>
       <CardHeader>
@@ -128,39 +129,53 @@ onMounted(load)
     </Card>
 
     <Card>
-      <CardContent class="overflow-x-auto pt-5">
-        <table class="w-full text-sm">
-          <thead class="text-left text-muted-foreground">
+      <CardContent class="pt-5">
+        <DataTable
+          v-model:page="tablePage"
+          min-width="720px"
+          max-height="28rem"
+          :paginate="items.length > tablePageSize"
+          :total="items.length"
+          :page-size="tablePageSize"
+        >
+          <template #head>
             <tr>
-              <th class="pb-2">ID</th>
-              <th class="pb-2">用户名</th>
-              <th class="pb-2">角色</th>
-              <th class="pb-2">每日拉取上限</th>
-              <th class="pb-2">最近登录</th>
-              <th class="pb-2"></th>
+              <th class="px-3 py-2.5 font-medium whitespace-nowrap">ID</th>
+              <th class="px-3 py-2.5 font-medium">用户名</th>
+              <th class="px-3 py-2.5 font-medium whitespace-nowrap">角色</th>
+              <th class="px-3 py-2.5 font-medium whitespace-nowrap">每日拉取上限</th>
+              <th class="px-3 py-2.5 font-medium whitespace-nowrap">最近登录</th>
+              <th class="px-3 py-2.5 font-medium whitespace-nowrap">操作</th>
             </tr>
-          </thead>
-          <tbody>
-            <tr v-for="u in items" :key="u.id" class="border-t border-border">
-              <td class="py-2">{{ u.id }}</td>
-              <td class="py-2 font-medium">
-                {{ u.username }}
-                <Badge v-if="u.must_change_password" variant="danger" class="ml-2">需改密</Badge>
-              </td>
-              <td class="py-2"><Badge :variant="u.role === 'admin' ? 'default' : 'secondary'">{{ u.role }}</Badge></td>
-              <td class="py-2 tabular-nums">
-                {{ u.daily_pull_limit === 0 ? '不限' : u.daily_pull_limit }}
-              </td>
-              <td class="py-2">{{ formatTime(u.last_login_at) }}</td>
-              <td class="py-2 space-x-1">
+          </template>
+          <tr
+            v-for="u in pageSlice(items, tablePage, tablePageSize)"
+            :key="u.id"
+            class="border-t border-border/70"
+          >
+            <td class="px-3 py-2.5 whitespace-nowrap">{{ u.id }}</td>
+            <td class="px-3 py-2.5 font-medium">
+              <span class="truncate">{{ u.username }}</span>
+              <Badge v-if="u.must_change_password" variant="danger" class="ml-2">需改密</Badge>
+            </td>
+            <td class="px-3 py-2.5 whitespace-nowrap">
+              <Badge :variant="u.role === 'admin' ? 'default' : 'secondary'">{{ u.role }}</Badge>
+            </td>
+            <td class="px-3 py-2.5 tabular-nums whitespace-nowrap">
+              {{ u.daily_pull_limit === 0 ? '不限' : u.daily_pull_limit }}
+            </td>
+            <td class="px-3 py-2.5 whitespace-nowrap">{{ formatTime(u.last_login_at) }}</td>
+            <td class="px-3 py-2.5">
+              <div class="flex flex-nowrap items-center gap-1">
                 <Button size="sm" variant="ghost" @click="setLimit(u)">限流</Button>
                 <Button size="sm" variant="ghost" @click="renameUser(u)">改名</Button>
                 <Button size="sm" variant="ghost" @click="resetPwd(u)">重置密码</Button>
                 <Button size="sm" variant="outline" :disabled="u.id === me?.id" @click="remove(u.id)">删除</Button>
-              </td>
-            </tr>
-          </tbody>
-        </table>
+              </div>
+            </td>
+          </tr>
+        </DataTable>
+        <p v-if="!items.length" class="py-6 text-center text-sm text-muted-foreground">暂无用户</p>
       </CardContent>
     </Card>
   </div>

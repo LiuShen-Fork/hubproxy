@@ -183,11 +183,21 @@ func wireRuntimeCallbacks() {
 
 func startMaintenanceJobs() {
 	go func() {
-		ticker := time.NewTicker(10 * time.Minute)
-		defer ticker.Stop()
-		for range ticker.C {
-			_ = db.CleanupExpiredSessions()
-			_ = db.ExpireIdlePullSessions()
+		// login session cleanup + counted pull idle expire
+		slow := time.NewTicker(10 * time.Minute)
+		// manifest-only probe cleanup (default 60s)
+		fast := time.NewTicker(20 * time.Second)
+		defer slow.Stop()
+		defer fast.Stop()
+		for {
+			select {
+			case <-slow.C:
+				_ = db.CleanupExpiredSessions()
+				_ = db.ExpireIdlePullSessions()
+				_ = db.CleanupManifestProbes()
+			case <-fast.C:
+				_ = db.CleanupManifestProbes()
+			}
 		}
 	}()
 }

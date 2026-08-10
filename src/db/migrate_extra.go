@@ -106,6 +106,31 @@ CREATE TABLE IF NOT EXISTS user_ip_whitelist (
 	UNIQUE(user_id, cidr)
 );
 CREATE INDEX IF NOT EXISTS idx_user_ip_user ON user_ip_whitelist(user_id);
+
+CREATE TABLE IF NOT EXISTS oauth_bindings (
+	id INTEGER PRIMARY KEY AUTOINCREMENT,
+	user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+	provider TEXT NOT NULL,
+	subject TEXT NOT NULL,
+	email TEXT,
+	display_name TEXT,
+	avatar_url TEXT,
+	created_at TEXT NOT NULL,
+	updated_at TEXT NOT NULL,
+	UNIQUE(provider, subject)
+);
+CREATE INDEX IF NOT EXISTS idx_oauth_bindings_user ON oauth_bindings(user_id);
+
+CREATE TABLE IF NOT EXISTS email_codes (
+	id INTEGER PRIMARY KEY AUTOINCREMENT,
+	email TEXT NOT NULL,
+	code TEXT NOT NULL,
+	purpose TEXT NOT NULL DEFAULT 'register',
+	expires_at TEXT NOT NULL,
+	used INTEGER NOT NULL DEFAULT 0,
+	created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_email_codes_email ON email_codes(email, purpose);
 `
 	if _, err := DB.Exec(schema); err != nil {
 		return fmt.Errorf("migrate schema: %w", err)
@@ -113,6 +138,7 @@ CREATE INDEX IF NOT EXISTS idx_user_ip_user ON user_ip_whitelist(user_id);
 	if err := ensureColumns(); err != nil {
 		return fmt.Errorf("migrate columns: %w", err)
 	}
+	_ = ensureEmailCodesTable()
 	// indexes that depend on new columns
 	if _, err := DB.Exec(`
 CREATE INDEX IF NOT EXISTS idx_pull_sessions_user ON pull_sessions(user_id);

@@ -63,11 +63,15 @@ func UserGetToken(c *gin.Context) {
 		return
 	}
 	host := c.Request.Host
+	feat := db.GlobalRuntime.GetFeatures()
+	// require_token = 必须使用令牌路径 = 未开启公共镜像
+	requireToken := !feat.AllowPublicDockerPull()
 	c.JSON(http.StatusOK, gin.H{
-		"token":      tok,
-		"pull_path":  tok.Token,
-		"examples":   buildTokenExamples(host, tok.Token),
-		"require_token": db.GlobalRuntime.GetFeatures().RequireUserToken,
+		"token":          tok,
+		"pull_path":      tok.Token,
+		"examples":       buildTokenExamples(host, tok.Token),
+		"require_token":  requireToken,
+		"public_mirror":  feat.PublicMirror,
 	})
 }
 
@@ -160,10 +164,12 @@ func UserGuide(c *gin.Context) {
 	if tok != nil {
 		token = tok.Token
 	}
+	feat := db.GlobalRuntime.GetFeatures()
 	c.JSON(http.StatusOK, gin.H{
 		"host":          host,
 		"token":         token,
-		"require_token": db.GlobalRuntime.GetFeatures().RequireUserToken,
+		"require_token": !feat.AllowPublicDockerPull(),
+		"public_mirror": feat.PublicMirror,
 		"examples":      buildTokenExamples(host, token),
 		"notes": []string{
 			"方式 A（推荐显式）：docker pull " + host + "/你的令牌/镜像名:标签",

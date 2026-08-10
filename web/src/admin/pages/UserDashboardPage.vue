@@ -1,17 +1,23 @@
 <script setup lang="ts">
-import { onMounted, onUnmounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { Activity, Gauge, HardDrive, Network, Package } from 'lucide-vue-next'
 import Card from '@/components/ui/Card.vue'
 import CardContent from '@/components/ui/CardContent.vue'
 import CardHeader from '@/components/ui/CardHeader.vue'
 import CardTitle from '@/components/ui/CardTitle.vue'
 import Badge from '@/components/ui/Badge.vue'
+import DataTable from '@/components/ui/DataTable.vue'
 import { adminApi, formatBytes, formatTime, type DashboardStats, type UserQuota } from '../api'
+import { pageSlice } from '@/lib/table'
 
 const stats = ref<DashboardStats | null>(null)
 const quota = ref<UserQuota | null>(null)
 const error = ref('')
+const recentPage = ref(1)
+const recentPageSize = 6
 let timer: number | undefined
+
+const recentTotal = computed(() => stats.value?.recent_pulls?.length || 0)
 
 async function load() {
   try {
@@ -109,28 +115,39 @@ onUnmounted(() => {
       <CardHeader>
         <CardTitle>最近拉取（本账号令牌）</CardTitle>
       </CardHeader>
-      <CardContent class="overflow-x-auto">
-        <table class="w-full text-sm">
-          <thead class="text-left text-muted-foreground">
+      <CardContent>
+        <DataTable
+          v-model:page="recentPage"
+          min-width="560px"
+          max-height="20rem"
+          :paginate="recentTotal > recentPageSize"
+          :total="recentTotal"
+          :page-size="recentPageSize"
+        >
+          <template #head>
             <tr>
-              <th class="pb-2">时间</th>
-              <th class="pb-2">镜像</th>
-              <th class="pb-2">IP</th>
-              <th class="pb-2">流量</th>
-              <th class="pb-2">状态</th>
+              <th class="px-3 py-2.5 font-medium whitespace-nowrap">时间</th>
+              <th class="px-3 py-2.5 font-medium">镜像</th>
+              <th class="px-3 py-2.5 font-medium whitespace-nowrap">IP</th>
+              <th class="px-3 py-2.5 font-medium whitespace-nowrap">流量</th>
+              <th class="px-3 py-2.5 font-medium whitespace-nowrap">状态</th>
             </tr>
-          </thead>
-          <tbody>
-            <tr v-for="p in stats.recent_pulls" :key="p.id" class="border-t border-border">
-              <td class="py-2 whitespace-nowrap">{{ formatTime(p.started_at) }}</td>
-              <td class="py-2">{{ p.image_name }}:{{ p.tag }}</td>
-              <td class="py-2 font-mono text-xs">{{ p.client_ip }}</td>
-              <td class="py-2">{{ formatBytes(p.bytes_total) }}</td>
-              <td class="py-2"><Badge variant="secondary">{{ p.status }}</Badge></td>
-            </tr>
-          </tbody>
-        </table>
-        <p v-if="!stats.recent_pulls?.length" class="py-6 text-center text-sm text-muted-foreground">暂无拉取记录</p>
+          </template>
+          <tr
+            v-for="p in pageSlice(stats.recent_pulls, recentPage, recentPageSize)"
+            :key="p.id"
+            class="border-t border-border/70"
+          >
+            <td class="px-3 py-2.5 whitespace-nowrap">{{ formatTime(p.started_at) }}</td>
+            <td class="max-w-[12rem] px-3 py-2.5">
+              <div class="truncate" :title="`${p.image_name}:${p.tag}`">{{ p.image_name }}:{{ p.tag }}</div>
+            </td>
+            <td class="px-3 py-2.5 font-mono text-xs whitespace-nowrap">{{ p.client_ip }}</td>
+            <td class="px-3 py-2.5 whitespace-nowrap">{{ formatBytes(p.bytes_total) }}</td>
+            <td class="px-3 py-2.5 whitespace-nowrap"><Badge variant="secondary">{{ p.status }}</Badge></td>
+          </tr>
+        </DataTable>
+        <p v-if="!recentTotal" class="py-6 text-center text-sm text-muted-foreground">暂无拉取记录</p>
       </CardContent>
     </Card>
   </div>

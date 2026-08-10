@@ -106,6 +106,8 @@ type loginRequest struct {
 type registerRequest struct {
 	Username string `json:"username" binding:"required"`
 	Password string `json:"password" binding:"required"`
+	Email    string `json:"email"`
+	Code     string `json:"code"`
 }
 
 type changePasswordRequest struct {
@@ -181,8 +183,8 @@ func AuthMe(c *gin.Context) {
 
 func AuthRegister(c *gin.Context) {
 	admin := db.GlobalRuntime.GetAdmin()
-	if !admin.RegisterEnabled {
-		c.JSON(http.StatusForbidden, gin.H{"error": "注册已关闭", "code": "REGISTER_DISABLED"})
+	if !admin.FormRegisterAllowed() {
+		c.JSON(http.StatusForbidden, gin.H{"error": "表单注册已关闭", "code": "REGISTER_DISABLED"})
 		return
 	}
 	var req registerRequest
@@ -193,6 +195,17 @@ func AuthRegister(c *gin.Context) {
 	if len(req.Password) < 8 {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "密码至少 8 位"})
 		return
+	}
+	emailCfg := db.GlobalRuntime.GetEmail()
+	if admin.EmailRegisterEnabled && emailCfg.Enabled {
+		if strings.TrimSpace(req.Email) == "" || strings.TrimSpace(req.Code) == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "请填写邮箱与验证码"})
+			return
+		}
+		if err := db.VerifyEmailCode(req.Email, req.Code, "register"); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
 	}
 	user, err := db.CreateUser(req.Username, req.Password, db.RoleUser)
 	if err == db.ErrUserExists {
@@ -319,7 +332,28 @@ func AuthUpdateProfile(c *gin.Context) {
 
 func AuthPublicConfig(c *gin.Context) {
 	admin := db.GlobalRuntime.GetAdmin()
+	site := db.GlobalRuntime.GetSite()
+	oauth := db.GlobalRuntime.GetOAuth()
+	email := db.GlobalRuntime.GetEmail()
+	// auto redirect URL for display
+	scheme := "http"
+	if c.Request.TLS != nil || strings.EqualFold(c.GetHeader("X-Forwarded-Proto"), "https") {
+		scheme = "https"
+	}
+	host := c.Request.Host
+	if xf := c.GetHeader("X-Forwarded-Host"); xf != "" {
+		host = xf
+	}
+	redirectURL := scheme + "://" + host + "/api/admin/oauth/callback"
 	c.JSON(http.StatusOK, gin.H{
-		"register_enabled": admin.RegisterEnabled,
+		"register_enabled":       admin.FormRegisterAllowed(),
+		"form_register_enabled":  admin.FormRegisterAllowed(),
+		"oauth_login_enabled":    admin.OAuthLoginEnabled && oauth.Enabled,
+		"oauth_register_enabled": admin.OAuthRegisterEnabled && oauth.Enabled,
+		"oauth_bind_enabled":     oauth.Enabled, // always when provider enabled
+		"email_register_enabled": admin.EmailRegisterEnabled && email.Enabled,
+		"oauth":                  oauth.PublicView(),
+		"oauth_redirect_url":     redirectURL,
+		"site":                   site.PublicSiteView(),
 	})
 }

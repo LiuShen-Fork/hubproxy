@@ -8,11 +8,10 @@ import CardHeader from '@/components/ui/CardHeader.vue'
 import CardTitle from '@/components/ui/CardTitle.vue'
 import Badge from '@/components/ui/Badge.vue'
 import { adminApi } from '../api'
+import { toastError, toastSuccess } from '@/lib/toast'
 
 const items = ref<string[]>([])
 const ip = ref('')
-const msg = ref('')
-const err = ref('')
 
 async function load() {
   const res = await adminApi.userIPWhitelist()
@@ -21,30 +20,37 @@ async function load() {
 
 async function add() {
   if (!ip.value.trim()) return
-  await adminApi.addUserIP(ip.value.trim())
-  ip.value = ''
-  msg.value = '已添加'
-  await load()
+  try {
+    await adminApi.addUserIP(ip.value.trim())
+    ip.value = ''
+    toastSuccess('已添加')
+    await load()
+  } catch (e: any) {
+    toastError(e?.message || '添加失败')
+  }
 }
 
 async function remove(v: string) {
-  await adminApi.removeUserIP(v)
-  await load()
+  try {
+    await adminApi.removeUserIP(v)
+    toastSuccess('已移除')
+    await load()
+  } catch (e: any) {
+    toastError(e?.message || '移除失败')
+  }
 }
 
 onMounted(async () => {
   try {
     await load()
   } catch (e: any) {
-    err.value = e?.message || '加载失败'
+    toastError(e?.message || '加载失败')
   }
 })
 </script>
 
 <template>
   <div class="space-y-4">
-    <p v-if="msg" class="text-sm text-emerald-600">{{ msg }}</p>
-    <p v-if="err" class="text-sm text-destructive">{{ err }}</p>
     <Card>
       <CardHeader>
         <CardTitle>我的 IP 白名单</CardTitle>

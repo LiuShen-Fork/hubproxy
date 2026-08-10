@@ -1,16 +1,22 @@
 <script setup lang="ts">
-import { onMounted, onUnmounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { Activity, HardDrive, Network, Package } from 'lucide-vue-next'
 import Card from '@/components/ui/Card.vue'
 import CardContent from '@/components/ui/CardContent.vue'
 import CardHeader from '@/components/ui/CardHeader.vue'
 import CardTitle from '@/components/ui/CardTitle.vue'
 import Badge from '@/components/ui/Badge.vue'
+import DataTable from '@/components/ui/DataTable.vue'
 import { adminApi, formatBytes, formatTime, type DashboardStats } from '../api'
+import { pageSlice } from '@/lib/table'
 
 const stats = ref<DashboardStats | null>(null)
 const error = ref('')
+const recentPage = ref(1)
+const recentPageSize = 6
 let timer: number | undefined
+
+const recentTotal = computed(() => stats.value?.recent_pulls?.length || 0)
 
 async function load() {
   try {
@@ -126,26 +132,28 @@ function maxPull(trend: DashboardStats['daily_trend']) {
         <CardHeader>
           <CardTitle>热门镜像 Top 10</CardTitle>
         </CardHeader>
-        <CardContent class="overflow-x-auto">
-          <table class="w-full text-sm">
-            <thead class="text-left text-muted-foreground">
+        <CardContent>
+          <DataTable min-width="420px" max-height="18rem">
+            <template #head>
               <tr>
-                <th class="pb-2 font-medium">镜像</th>
-                <th class="pb-2 font-medium">次数</th>
-                <th class="pb-2 font-medium">流量</th>
+                <th class="px-3 py-2.5 font-medium">镜像</th>
+                <th class="px-3 py-2.5 font-medium whitespace-nowrap">次数</th>
+                <th class="px-3 py-2.5 font-medium whitespace-nowrap">流量</th>
               </tr>
-            </thead>
-            <tbody>
-              <tr v-for="img in stats.top_images" :key="img.registry + img.image_name" class="border-t border-border">
-                <td class="py-2">
-                  <div class="font-medium">{{ img.image_name }}</div>
-                  <div class="text-xs text-muted-foreground">{{ img.registry }} · {{ img.category }}</div>
-                </td>
-                <td class="py-2">{{ img.pull_count }}</td>
-                <td class="py-2">{{ formatBytes(img.bytes_total) }}</td>
-              </tr>
-            </tbody>
-          </table>
+            </template>
+            <tr
+              v-for="img in stats.top_images"
+              :key="img.registry + img.image_name"
+              class="border-t border-border/70"
+            >
+              <td class="max-w-[14rem] px-3 py-2.5">
+                <div class="truncate font-medium" :title="img.image_name">{{ img.image_name }}</div>
+                <div class="truncate text-xs text-muted-foreground">{{ img.registry }} · {{ img.category }}</div>
+              </td>
+              <td class="px-3 py-2.5 whitespace-nowrap">{{ img.pull_count }}</td>
+              <td class="px-3 py-2.5 whitespace-nowrap">{{ formatBytes(img.bytes_total) }}</td>
+            </tr>
+          </DataTable>
         </CardContent>
       </Card>
 
@@ -153,23 +161,21 @@ function maxPull(trend: DashboardStats['daily_trend']) {
         <CardHeader>
           <CardTitle>活跃 IP Top 10</CardTitle>
         </CardHeader>
-        <CardContent class="overflow-x-auto">
-          <table class="w-full text-sm">
-            <thead class="text-left text-muted-foreground">
+        <CardContent>
+          <DataTable min-width="360px" max-height="18rem">
+            <template #head>
               <tr>
-                <th class="pb-2 font-medium">IP</th>
-                <th class="pb-2 font-medium">次数</th>
-                <th class="pb-2 font-medium">流量</th>
+                <th class="px-3 py-2.5 font-medium">IP</th>
+                <th class="px-3 py-2.5 font-medium whitespace-nowrap">次数</th>
+                <th class="px-3 py-2.5 font-medium whitespace-nowrap">流量</th>
               </tr>
-            </thead>
-            <tbody>
-              <tr v-for="ip in stats.top_ips" :key="ip.client_ip" class="border-t border-border">
-                <td class="py-2 font-mono text-xs">{{ ip.client_ip }}</td>
-                <td class="py-2">{{ ip.pull_count }}</td>
-                <td class="py-2">{{ formatBytes(ip.bytes_total) }}</td>
-              </tr>
-            </tbody>
-          </table>
+            </template>
+            <tr v-for="ip in stats.top_ips" :key="ip.client_ip" class="border-t border-border/70">
+              <td class="px-3 py-2.5 font-mono text-xs whitespace-nowrap">{{ ip.client_ip }}</td>
+              <td class="px-3 py-2.5 whitespace-nowrap">{{ ip.pull_count }}</td>
+              <td class="px-3 py-2.5 whitespace-nowrap">{{ formatBytes(ip.bytes_total) }}</td>
+            </tr>
+          </DataTable>
         </CardContent>
       </Card>
     </div>
@@ -178,32 +184,42 @@ function maxPull(trend: DashboardStats['daily_trend']) {
       <CardHeader>
         <CardTitle>最近拉取</CardTitle>
       </CardHeader>
-      <CardContent class="overflow-x-auto">
-        <table class="w-full text-sm">
-          <thead class="text-left text-muted-foreground">
+      <CardContent>
+        <DataTable
+          v-model:page="recentPage"
+          min-width="560px"
+          max-height="20rem"
+          :paginate="recentTotal > recentPageSize"
+          :total="recentTotal"
+          :page-size="recentPageSize"
+        >
+          <template #head>
             <tr>
-              <th class="pb-2 font-medium">时间</th>
-              <th class="pb-2 font-medium">镜像</th>
-              <th class="pb-2 font-medium">IP</th>
-              <th class="pb-2 font-medium">流量</th>
-              <th class="pb-2 font-medium">状态</th>
+              <th class="px-3 py-2.5 font-medium whitespace-nowrap">时间</th>
+              <th class="px-3 py-2.5 font-medium">镜像</th>
+              <th class="px-3 py-2.5 font-medium whitespace-nowrap">IP</th>
+              <th class="px-3 py-2.5 font-medium whitespace-nowrap">流量</th>
+              <th class="px-3 py-2.5 font-medium whitespace-nowrap">状态</th>
             </tr>
-          </thead>
-          <tbody>
-            <tr v-for="p in stats.recent_pulls" :key="p.id" class="border-t border-border">
-              <td class="py-2 whitespace-nowrap">{{ formatTime(p.started_at) }}</td>
-              <td class="py-2">
-                <div>{{ p.image_name }}:{{ p.tag }}</div>
-                <div class="text-xs text-muted-foreground">{{ p.registry }}</div>
-              </td>
-              <td class="py-2 font-mono text-xs">{{ p.client_ip }}</td>
-              <td class="py-2">{{ formatBytes(p.bytes_total) }}</td>
-              <td class="py-2">
-                <Badge :variant="p.status === 'active' ? 'success' : 'secondary'">{{ p.status }}</Badge>
-              </td>
-            </tr>
-          </tbody>
-        </table>
+          </template>
+          <tr
+            v-for="p in pageSlice(stats.recent_pulls, recentPage, recentPageSize)"
+            :key="p.id"
+            class="border-t border-border/70"
+          >
+            <td class="px-3 py-2.5 whitespace-nowrap">{{ formatTime(p.started_at) }}</td>
+            <td class="max-w-[12rem] px-3 py-2.5">
+              <div class="truncate" :title="`${p.image_name}:${p.tag}`">{{ p.image_name }}:{{ p.tag }}</div>
+              <div class="truncate text-xs text-muted-foreground">{{ p.registry }}</div>
+            </td>
+            <td class="px-3 py-2.5 font-mono text-xs whitespace-nowrap">{{ p.client_ip }}</td>
+            <td class="px-3 py-2.5 whitespace-nowrap">{{ formatBytes(p.bytes_total) }}</td>
+            <td class="px-3 py-2.5 whitespace-nowrap">
+              <Badge :variant="p.status === 'active' ? 'success' : 'secondary'">{{ p.status }}</Badge>
+            </td>
+          </tr>
+        </DataTable>
+        <p v-if="!recentTotal" class="py-6 text-center text-sm text-muted-foreground">暂无数据</p>
       </CardContent>
     </Card>
   </div>
