@@ -3,10 +3,23 @@ import { onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import Button from '@/components/ui/Button.vue'
 import Input from '@/components/ui/Input.vue'
+import Select from '@/components/ui/Select.vue'
 import Card from '@/components/ui/Card.vue'
 import CardContent from '@/components/ui/CardContent.vue'
 import Badge from '@/components/ui/Badge.vue'
 import { adminApi, formatBytes, formatTime, type PullSession } from '../api'
+
+const categoryOptions = [
+  { value: '', label: '全部类别' },
+  { value: 'library', label: 'library' },
+  { value: 'user', label: 'user' },
+]
+const statusOptions = [
+  { value: '', label: '全部状态' },
+  { value: 'active', label: 'active' },
+  { value: 'completed', label: 'completed' },
+  { value: 'failed', label: 'failed' },
+]
 
 const route = useRoute()
 const items = ref<PullSession[]>([])
@@ -54,18 +67,9 @@ const pages = () => Math.max(1, Math.ceil(total.value / pageSize))
       <CardContent class="grid gap-3 pt-5 md:grid-cols-5">
         <Input v-model="ip" placeholder="按 IP 筛选" />
         <Input v-model="image" placeholder="按镜像名称筛选" />
-        <select v-model="category" class="h-11 rounded-lg border border-input bg-transparent px-3 text-sm">
-          <option value="">全部类别</option>
-          <option value="library">library</option>
-          <option value="user">user</option>
-        </select>
-        <select v-model="status" class="h-11 rounded-lg border border-input bg-transparent px-3 text-sm">
-          <option value="">全部状态</option>
-          <option value="active">active</option>
-          <option value="completed">completed</option>
-          <option value="failed">failed</option>
-        </select>
-        <Button @click="page = 1; load()">查询</Button>
+        <Select v-model="category" :options="categoryOptions" />
+        <Select v-model="status" :options="statusOptions" />
+        <Button class="rounded-xl" @click="page = 1; load()">查询</Button>
       </CardContent>
     </Card>
 
