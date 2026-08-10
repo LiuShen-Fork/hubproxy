@@ -89,13 +89,8 @@ func stripUserAccessToken(c *gin.Context) (denied string) {
 		parts := strings.SplitN(rest, "/", 2)
 		if len(parts) >= 1 && db.IsAccessTokenFormat(parts[0]) {
 			tok := parts[0]
-			at, err := db.GetActiveToken(tok)
-			if err != nil {
-				return "访问令牌无效或已重置"
-			}
-			ok, err := db.CheckUserIPAllowed(at.UserID, c.ClientIP())
-			if err != nil || !ok {
-				return "当前 IP 不在该用户白名单内"
+			if _, denied := authenticateAccessTokenPath(c, tok); denied != "" {
+				return denied
 			}
 			// rewrite path without token segment
 			if len(parts) == 1 || parts[1] == "" {
@@ -103,7 +98,6 @@ func stripUserAccessToken(c *gin.Context) (denied string) {
 			} else {
 				c.Request.URL.Path = "/v2/" + parts[1]
 			}
-			c.Set(ctxAccessUserID, at.UserID)
 			return ""
 		}
 		// Public mirror disabled → must use personal token path
@@ -114,6 +108,22 @@ func stripUserAccessToken(c *gin.Context) (denied string) {
 	}
 
 	return ""
+}
+
+func authenticateAccessTokenPath(c *gin.Context, tok string) (userID int64, denied string) {
+	if !db.IsAccessTokenFormat(tok) {
+		return 0, "访问令牌无效或已重置"
+	}
+	at, err := db.GetActiveToken(tok)
+	if err != nil {
+		return 0, "访问令牌无效或已重置"
+	}
+	ok, err := db.CheckUserIPAllowed(at.UserID, c.ClientIP())
+	if err != nil || !ok {
+		return 0, "当前 IP 不在该用户白名单内"
+	}
+	c.Set(ctxAccessUserID, at.UserID)
+	return at.UserID, ""
 }
 
 // DenyTokenPathBrowse returns 404 JSON for browser/search-engine hits on /TOKEN or /TOKEN/...

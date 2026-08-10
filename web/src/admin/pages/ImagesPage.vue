@@ -7,12 +7,12 @@ import Card from '@/components/ui/Card.vue'
 import CardContent from '@/components/ui/CardContent.vue'
 import Badge from '@/components/ui/Badge.vue'
 import DataTable from '@/components/ui/DataTable.vue'
-import { adminApi, formatBytes } from '../api'
+import { adminApi, formatBytes, pullSourceLabel } from '../api'
 
 const categoryOptions = [
   { value: '', label: '全部类别' },
-  { value: 'library', label: 'library' },
-  { value: 'user', label: 'user' },
+  { value: 'github', label: 'GitHub' },
+  { value: 'huggingface', label: 'Hugging Face' },
 ]
 
 const items = ref<any[]>([])
@@ -72,7 +72,7 @@ watch(page, load)
           <tr v-for="it in items" :key="it.registry + it.image_name" class="border-t border-border/70">
             <td class="max-w-[12rem] truncate px-3 py-2.5 font-medium" :title="it.image_name">{{ it.image_name }}</td>
             <td class="max-w-[10rem] truncate px-3 py-2.5" :title="it.registry">{{ it.registry }}</td>
-            <td class="px-3 py-2.5 whitespace-nowrap"><Badge variant="secondary">{{ it.category }}</Badge></td>
+            <td class="px-3 py-2.5 whitespace-nowrap"><Badge variant="secondary">{{ pullSourceLabel(it) }}</Badge></td>
             <td class="px-3 py-2.5 whitespace-nowrap">{{ it.pull_count }}</td>
             <td class="px-3 py-2.5 whitespace-nowrap">{{ it.unique_ips }}</td>
             <td class="px-3 py-2.5 whitespace-nowrap">{{ formatBytes(it.bytes_total) }}</td>

@@ -175,10 +175,10 @@ onMounted(async () => {
               v-model.number="settings.pull_session.retention_days"
               type="number"
               min="1"
-              :placeholder="'90'"
+              :placeholder="'30'"
             />
             <p class="text-xs text-muted-foreground">
-              每天额度刷新后清理早于该天数的拉取会话、事件和日统计；用户账号不会删除
+              每天凌晨 2 点清理早于该天数的拉取会话、事件和日统计；用户账号与访问令牌不会删除
             </p>
           </div>
           <Button @click="savePullSession">保存会话配置</Button>

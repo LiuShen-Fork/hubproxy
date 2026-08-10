@@ -7,7 +7,7 @@ import CardHeader from '@/components/ui/CardHeader.vue'
 import CardTitle from '@/components/ui/CardTitle.vue'
 import Badge from '@/components/ui/Badge.vue'
 import DataTable from '@/components/ui/DataTable.vue'
-import { adminApi, formatBytes, formatTime, type DashboardStats } from '../api'
+import { adminApi, categoryLabel, displayPullName, formatBytes, formatTime, pullSourceLabel, type DashboardStats } from '../api'
 import { pageSlice } from '@/lib/table'
 
 const stats = ref<DashboardStats | null>(null)
@@ -136,7 +136,7 @@ onUnmounted(() => {
               :key="c.category"
               class="flex items-center justify-between gap-2 text-sm"
             >
-              <Badge variant="secondary">{{ c.category }}</Badge>
+              <Badge variant="secondary">{{ categoryLabel(c.category) }}</Badge>
               <span class="shrink-0 text-muted-foreground">{{ c.pull_count }} 次 · {{ formatBytes(c.bytes_total) }}</span>
             </div>
           </div>
@@ -168,7 +168,7 @@ onUnmounted(() => {
             >
               <td class="max-w-[14rem] px-3 py-2.5">
                 <div class="truncate font-medium" :title="img.image_name">{{ img.image_name }}</div>
-                <div class="truncate text-xs text-muted-foreground">{{ img.registry }} · {{ img.category }}</div>
+                <div class="truncate text-xs text-muted-foreground">{{ pullSourceLabel(img) }}</div>
               </td>
               <td class="px-3 py-2.5 whitespace-nowrap">{{ img.pull_count }}</td>
               <td class="px-3 py-2.5 whitespace-nowrap">{{ formatBytes(img.bytes_total) }}</td>
@@ -223,7 +223,8 @@ onUnmounted(() => {
           <template #head>
             <tr>
               <th class="px-3 py-2.5 font-medium whitespace-nowrap">时间</th>
-              <th class="px-3 py-2.5 font-medium">镜像</th>
+              <th class="px-3 py-2.5 font-medium">内容</th>
+              <th class="px-3 py-2.5 font-medium whitespace-nowrap">类别</th>
               <th class="px-3 py-2.5 font-medium whitespace-nowrap">IP</th>
               <th class="px-3 py-2.5 font-medium whitespace-nowrap">流量</th>
             </tr>
@@ -235,9 +236,10 @@ onUnmounted(() => {
           >
             <td class="px-3 py-2.5 whitespace-nowrap">{{ formatTime(p.started_at) }}</td>
             <td class="max-w-[12rem] px-3 py-2.5">
-              <div class="truncate" :title="`${p.image_name}:${p.tag}`">{{ p.image_name }}:{{ p.tag }}</div>
+              <div class="truncate" :title="p.image_name">{{ displayPullName(p) }}</div>
               <div class="truncate text-xs text-muted-foreground">{{ p.registry }}</div>
             </td>
+            <td class="px-3 py-2.5 whitespace-nowrap"><Badge variant="secondary">{{ pullSourceLabel(p) }}</Badge></td>
             <td class="px-3 py-2.5 font-mono text-xs whitespace-nowrap">{{ p.client_ip }}</td>
             <td class="px-3 py-2.5 whitespace-nowrap">{{ formatBytes(p.bytes_total) }}</td>
           </tr>

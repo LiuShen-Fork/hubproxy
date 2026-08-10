@@ -105,6 +105,14 @@ func ImageCategory(imageName string) string {
 	return "user"
 }
 
+func normalizePullCategory(imageName, category string) string {
+	category = strings.TrimSpace(strings.ToLower(category))
+	if category != "" {
+		return category
+	}
+	return ImageCategory(imageName)
+}
+
 func FindActivePullSession(ip, imageName, registry string, userID int64) (*PullSession, error) {
 	cfg := LoadPullSession()
 	window := time.Duration(cfg.WindowMinutes) * time.Minute
@@ -143,7 +151,11 @@ func isManifestEvent(eventType string) bool {
 }
 
 func isBlobEvent(eventType string) bool {
-	return eventType == "blobs" || eventType == "blob"
+	return eventType == "blobs" || eventType == "blob" || eventType == "file"
+}
+
+func isDigestPullReference(tag string) bool {
+	return tag == "digest" || strings.HasPrefix(tag, "sha256:") || strings.HasPrefix(tag, "sha256-")
 }
 
 // FindOrCreatePullSession implements pull cycle:
@@ -153,23 +165,27 @@ func isBlobEvent(eventType string) bool {
 //  4. Next manifest after already counted (layer_count>0) → complete old, open NEW cycle
 //  5. Manifest-only with no blob is deleted after ManifestProbeSeconds (see CleanupManifestProbes)
 func FindOrCreatePullSession(ip, imageName, registry, tag, eventType string, userID int64) (*PullSession, bool, error) {
+	return FindOrCreatePullSessionWithCategory(ip, imageName, registry, tag, "", eventType, userID)
+}
+
+func FindOrCreatePullSessionWithCategory(ip, imageName, registry, tag, category, eventType string, userID int64) (*PullSession, bool, error) {
 	if tag == "" {
 		tag = "latest"
 	}
 	if registry == "" {
 		registry = "docker.io"
 	}
-	category := ImageCategory(imageName)
+	category = normalizePullCategory(imageName, category)
 
 	s, err := FindActivePullSession(ip, imageName, registry, userID)
 	if err != nil {
 		return nil, false, err
 	}
 
-	// Already counted this cycle → any new manifest starts a fresh cycle (second docker pull).
-	// Digest manifests after first blob still belong to same pull (multi-arch follow-up is rare post-blob;
-	// if tag/digest manifest after layers, treat as new pull intent).
-	if s != nil && s.LayerCount > 0 && isManifestEvent(eventType) {
+	// Already counted this cycle → a new tag manifest starts a fresh cycle
+	// (second docker pull). Digest manifests immediately following a tag pull
+	// are part of the same pull and should not count again.
+	if s != nil && s.LayerCount > 0 && isManifestEvent(eventType) && !isDigestPullReference(tag) {
 		_ = CompletePullSession(s.ID, "completed")
 		s = nil
 	}
@@ -177,7 +193,7 @@ func FindOrCreatePullSession(ip, imageName, registry, tag, eventType string, use
 	// Blob with no open uncounted/active session: open one (resume / race)
 	if s != nil {
 		now := Now()
-		if tag != "" && tag != "digest" && !strings.HasPrefix(tag, "sha256:") &&
+		if tag != "" && !isDigestPullReference(tag) &&
 			(s.Tag == "" || s.Tag == "digest" || s.Tag == "latest" || s.Tag != tag) {
 			_, _ = DB.Exec(
 				`UPDATE pull_sessions SET last_seen_at = ?, request_count = request_count + 1, tag = ? WHERE id = ?`,
@@ -639,9 +655,11 @@ func GetDashboardStats(days int) (*DashboardStats, error) {
 	}
 
 	rows3, err := DB.Query(
-		`SELECT category, COUNT(*), COALESCE(SUM(bytes_total),0)
+		`SELECT CASE WHEN category IN ('github', 'huggingface') THEN category ELSE registry END,
+		        COUNT(*), COALESCE(SUM(bytes_total),0)
 		 FROM pull_sessions WHERE ` + countedPullSQL + `
-		 GROUP BY category ORDER BY COUNT(*) DESC`,
+		 GROUP BY CASE WHEN category IN ('github', 'huggingface') THEN category ELSE registry END
+		 ORDER BY COUNT(*) DESC`,
 	)
 	if err == nil {
 		defer rows3.Close()

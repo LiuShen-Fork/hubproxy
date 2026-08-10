@@ -11,6 +11,7 @@ import Badge from '@/components/ui/Badge.vue'
 import { adminApi } from '../api'
 import { copyText } from '@/lib/utils'
 import { toastError, toastSuccess } from '@/lib/toast'
+import { setAccessToken } from '@/lib/accessToken'
 
 const token = ref('')
 const examples = ref<Record<string, string>>({})
@@ -21,6 +22,7 @@ const host = computed(() => window.location.host)
 async function load() {
   const res = await adminApi.userToken()
   token.value = res.token?.token || ''
+  setAccessToken(token.value)
   examples.value = res.examples || {}
   // require_token = 必须令牌 = 未开公共镜像（与管理员 public_mirror 相反）
   if (typeof res.public_mirror === 'boolean') {
@@ -43,6 +45,7 @@ async function reset() {
   try {
     const res = await adminApi.resetUserToken()
     token.value = res.token?.token || ''
+    setAccessToken(token.value)
     examples.value = res.examples || {}
     toastSuccess(res.message || '已重置')
   } catch (e: any) {

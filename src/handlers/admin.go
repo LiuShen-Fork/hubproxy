@@ -452,7 +452,7 @@ func AdminPutPullSession(c *gin.Context) {
 		req.ManifestProbeSeconds = 60
 	}
 	if req.RetentionDays < 1 {
-		req.RetentionDays = 90
+		req.RetentionDays = 30
 	}
 	if err := db.SetSetting(db.KeyPullSession, req); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})

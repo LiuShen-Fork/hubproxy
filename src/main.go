@@ -132,6 +132,12 @@ func buildRouter(cfg *config.AppConfig) *gin.Engine {
 	// registry-mirrors path prefix form (must stay specific; do not add /:token catch-all)
 	router.Any("/:token/v2", handlers.ProxyDockerRegistryMirrorPrefix)
 	router.Any("/:token/v2/*filepath", handlers.ProxyDockerRegistryMirrorPrefix)
+	// Token-scoped content acceleration. Public /gh and /hf are allowed only
+	// when the public mirror switch is enabled.
+	router.Any("/gh/*path", handlers.ProxyGitHubPublicPath)
+	router.Any("/hf/*path", handlers.ProxyHuggingFacePublicPath)
+	router.Any("/:token/gh/*path", handlers.ProxyGitHubTokenPath)
+	router.Any("/:token/hf/*path", handlers.ProxyHuggingFaceTokenPath)
 
 	// API 未匹配路由返回 JSON，避免落入 GitHub 代理返回「无效输入」
 	router.NoRoute(func(c *gin.Context) {
@@ -189,29 +195,33 @@ func startMaintenanceJobs() {
 		fast := time.NewTicker(20 * time.Second)
 		defer slow.Stop()
 		defer fast.Stop()
-		lastRetentionCleanupDay := ""
-		runDailyRetentionCleanup := func() {
-			day := db.LocalDayStart().Format("2006-01-02")
-			if day == lastRetentionCleanupDay {
-				return
-			}
-			if err := db.CleanupOldPullData(); err != nil {
-				log.Printf("清理旧拉取数据失败: %v", err)
-				return
-			}
-			lastRetentionCleanupDay = day
-		}
-		runDailyRetentionCleanup()
 		for {
 			select {
 			case <-slow.C:
 				_ = db.CleanupExpiredSessions()
 				_ = db.ExpireIdlePullSessions()
 				_ = db.CleanupManifestProbes()
-				runDailyRetentionCleanup()
 			case <-fast.C:
 				_ = db.CleanupManifestProbes()
 			}
+		}
+	}()
+	go func() {
+		run := func() {
+			if err := db.CleanupOldPullData(); err != nil {
+				log.Printf("清理旧拉取数据失败: %v", err)
+			}
+		}
+		run()
+		for {
+			now := time.Now()
+			next := time.Date(now.Year(), now.Month(), now.Day(), 2, 0, 0, 0, now.Location())
+			if !next.After(now) {
+				next = next.Add(24 * time.Hour)
+			}
+			timer := time.NewTimer(time.Until(next))
+			<-timer.C
+			run()
 		}
 	}()
 }

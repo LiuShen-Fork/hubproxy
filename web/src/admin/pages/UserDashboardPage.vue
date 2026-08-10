@@ -5,8 +5,9 @@ import Card from '@/components/ui/Card.vue'
 import CardContent from '@/components/ui/CardContent.vue'
 import CardHeader from '@/components/ui/CardHeader.vue'
 import CardTitle from '@/components/ui/CardTitle.vue'
+import Badge from '@/components/ui/Badge.vue'
 import DataTable from '@/components/ui/DataTable.vue'
-import { adminApi, formatBytes, formatTime, type DashboardStats, type UserQuota } from '../api'
+import { adminApi, displayPullName, formatBytes, formatTime, pullSourceLabel, type DashboardStats, type UserQuota } from '../api'
 import { pageSlice } from '@/lib/table'
 
 const stats = ref<DashboardStats | null>(null)
@@ -119,7 +120,8 @@ onUnmounted(() => {
           <template #head>
             <tr>
               <th class="px-3 py-2.5 font-medium whitespace-nowrap">时间</th>
-              <th class="px-3 py-2.5 font-medium">镜像</th>
+              <th class="px-3 py-2.5 font-medium">内容</th>
+              <th class="px-3 py-2.5 font-medium whitespace-nowrap">类别</th>
               <th class="px-3 py-2.5 font-medium whitespace-nowrap">IP</th>
               <th class="px-3 py-2.5 font-medium whitespace-nowrap">流量</th>
             </tr>
@@ -131,8 +133,9 @@ onUnmounted(() => {
           >
             <td class="px-3 py-2.5 whitespace-nowrap">{{ formatTime(p.started_at) }}</td>
             <td class="max-w-[12rem] px-3 py-2.5">
-              <div class="truncate" :title="`${p.image_name}:${p.tag}`">{{ p.image_name }}:{{ p.tag }}</div>
+              <div class="truncate" :title="p.image_name">{{ displayPullName(p) }}</div>
             </td>
+            <td class="px-3 py-2.5 whitespace-nowrap"><Badge variant="secondary">{{ pullSourceLabel(p) }}</Badge></td>
             <td class="px-3 py-2.5 font-mono text-xs whitespace-nowrap">{{ p.client_ip }}</td>
             <td class="px-3 py-2.5 whitespace-nowrap">{{ formatBytes(p.bytes_total) }}</td>
           </tr>

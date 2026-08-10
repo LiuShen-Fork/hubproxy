@@ -4,8 +4,9 @@ import Button from '@/components/ui/Button.vue'
 import Input from '@/components/ui/Input.vue'
 import Card from '@/components/ui/Card.vue'
 import CardContent from '@/components/ui/CardContent.vue'
+import Badge from '@/components/ui/Badge.vue'
 import DataTable from '@/components/ui/DataTable.vue'
-import { adminApi, formatBytes, formatTime, type PullSession } from '../api'
+import { adminApi, displayPullName, formatBytes, formatTime, pullSourceLabel, type PullSession } from '../api'
 
 const items = ref<PullSession[]>([])
 const total = ref(0)
@@ -51,7 +52,8 @@ watch(page, load)
           <template #head>
             <tr>
               <th class="px-3 py-2.5 font-medium whitespace-nowrap">时间</th>
-              <th class="px-3 py-2.5 font-medium">镜像</th>
+              <th class="px-3 py-2.5 font-medium">内容</th>
+              <th class="px-3 py-2.5 font-medium whitespace-nowrap">类别</th>
               <th class="px-3 py-2.5 font-medium">Registry</th>
               <th class="px-3 py-2.5 font-medium whitespace-nowrap">IP</th>
               <th class="px-3 py-2.5 font-medium whitespace-nowrap">流量</th>
@@ -59,9 +61,10 @@ watch(page, load)
           </template>
           <tr v-for="p in items" :key="p.id" class="border-t border-border/70">
             <td class="px-3 py-2.5 whitespace-nowrap">{{ formatTime(p.started_at) }}</td>
-            <td class="max-w-[12rem] truncate px-3 py-2.5" :title="`${p.image_name}:${p.tag}`">
-              {{ p.image_name }}:{{ p.tag }}
+            <td class="max-w-[12rem] truncate px-3 py-2.5" :title="p.image_name">
+              {{ displayPullName(p) }}
             </td>
+            <td class="px-3 py-2.5 whitespace-nowrap"><Badge variant="secondary">{{ pullSourceLabel(p) }}</Badge></td>
             <td class="max-w-[8rem] truncate px-3 py-2.5" :title="p.registry">{{ p.registry }}</td>
             <td class="px-3 py-2.5 font-mono text-xs whitespace-nowrap">{{ p.client_ip }}</td>
             <td class="px-3 py-2.5 whitespace-nowrap">{{ formatBytes(p.bytes_total) }}</td>

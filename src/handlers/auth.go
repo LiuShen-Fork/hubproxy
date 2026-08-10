@@ -372,6 +372,7 @@ func AuthPublicConfig(c *gin.Context) {
 	site := db.GlobalRuntime.GetSite()
 	oauth := db.GlobalRuntime.GetOAuth()
 	email := db.GlobalRuntime.GetEmail()
+	features := db.GlobalRuntime.GetFeatures()
 	// auto redirect URL for display
 	scheme := "http"
 	if c.Request.TLS != nil || strings.EqualFold(c.GetHeader("X-Forwarded-Proto"), "https") {
@@ -391,6 +392,15 @@ func AuthPublicConfig(c *gin.Context) {
 		"email_register_enabled": admin.EmailRegisterEnabled && email.Enabled,
 		"oauth":                  oauth.PublicView(),
 		"oauth_redirect_url":     redirectURL,
-		"site":                   site.PublicSiteView(),
+		"features": gin.H{
+			"docker_hub":    features.DockerHub,
+			"github":        features.GitHub,
+			"huggingface":   features.HuggingFace,
+			"image_search":  features.ImageSearch,
+			"offline_image": features.OfflineImage,
+			"public_mirror": features.PublicMirror,
+			"require_token": !features.AllowPublicDockerPull(),
+		},
+		"site": site.PublicSiteView(),
 	})
 }

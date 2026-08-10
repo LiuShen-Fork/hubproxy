@@ -212,6 +212,7 @@ export const adminApi = {
       oauth: { enabled: boolean; ready: boolean; display_name: string }
       oauth_redirect_url?: string
       site: SiteSettingsApi
+      features?: FeatureToggles
     }>('/public-config'),
   login: (username: string, password: string) =>
     request<{ token: string; user: User }>('/login', {
@@ -387,4 +388,25 @@ export function formatTime(iso?: string): string {
   const d = new Date(iso)
   if (Number.isNaN(d.getTime())) return iso
   return d.toLocaleString()
+}
+
+export function categoryLabel(category?: string): string {
+  if (category === 'github') return 'GitHub'
+  if (category === 'huggingface') return 'Hugging Face'
+  return category || '-'
+}
+
+export function pullSourceLabel(p: Pick<PullSession, 'category' | 'registry'>): string {
+  if (p.category === 'github') return 'GitHub'
+  if (p.category === 'huggingface') return 'Hugging Face'
+  return p.registry || 'Docker'
+}
+
+export function displayPullName(p: PullSession): string {
+  if (p.category === 'github' || p.category === 'huggingface') {
+    const clean = (p.image_name || '').split('?')[0].replace(/\/$/, '')
+    const base = clean.split('/').filter(Boolean).pop()
+    return base || p.tag || p.image_name
+  }
+  return p.tag ? `${p.image_name}:${p.tag}` : p.image_name
 }

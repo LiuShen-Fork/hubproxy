@@ -8,12 +8,12 @@ import Card from '@/components/ui/Card.vue'
 import CardContent from '@/components/ui/CardContent.vue'
 import Badge from '@/components/ui/Badge.vue'
 import DataTable from '@/components/ui/DataTable.vue'
-import { adminApi, formatBytes, formatTime, type PullSession } from '../api'
+import { adminApi, displayPullName, formatBytes, formatTime, pullSourceLabel, type PullSession } from '../api'
 
 const categoryOptions = [
   { value: '', label: '全部类别' },
-  { value: 'library', label: 'library' },
-  { value: 'user', label: 'user' },
+  { value: 'github', label: 'GitHub' },
+  { value: 'huggingface', label: 'Hugging Face' },
 ]
 const route = useRoute()
 const items = ref<PullSession[]>([])
@@ -76,7 +76,7 @@ watch(page, load)
           <template #head>
             <tr>
               <th class="px-3 py-2.5 font-medium whitespace-nowrap">开始时间</th>
-              <th class="px-3 py-2.5 font-medium">镜像</th>
+              <th class="px-3 py-2.5 font-medium">内容</th>
               <th class="px-3 py-2.5 font-medium whitespace-nowrap">IP</th>
               <th class="px-3 py-2.5 font-medium whitespace-nowrap">类别</th>
               <th class="px-3 py-2.5 font-medium whitespace-nowrap">层/请求</th>
@@ -87,11 +87,11 @@ watch(page, load)
           <tr v-for="p in items" :key="p.id" class="border-t border-border/70">
             <td class="px-3 py-2.5 whitespace-nowrap">{{ formatTime(p.started_at) }}</td>
             <td class="max-w-[14rem] px-3 py-2.5">
-              <div class="truncate font-medium" :title="`${p.image_name}:${p.tag}`">{{ p.image_name }}:{{ p.tag }}</div>
+              <div class="truncate font-medium" :title="p.image_name">{{ displayPullName(p) }}</div>
               <div class="truncate text-xs text-muted-foreground">{{ p.registry }}</div>
             </td>
             <td class="px-3 py-2.5 font-mono text-xs whitespace-nowrap">{{ p.client_ip }}</td>
-            <td class="px-3 py-2.5 whitespace-nowrap"><Badge variant="secondary">{{ p.category }}</Badge></td>
+            <td class="px-3 py-2.5 whitespace-nowrap"><Badge variant="secondary">{{ pullSourceLabel(p) }}</Badge></td>
             <td class="px-3 py-2.5 whitespace-nowrap">{{ p.layer_count }} / {{ p.request_count }}</td>
             <td class="px-3 py-2.5 whitespace-nowrap">{{ formatBytes(p.bytes_total) }}</td>
             <td class="px-3 py-2.5 whitespace-nowrap">
@@ -108,14 +108,14 @@ watch(page, load)
         <CardContent class="space-y-4 pt-5">
           <div class="flex items-start justify-between">
             <div>
-              <div class="font-display text-lg font-semibold">{{ selected.session.image_name }}:{{ selected.session.tag }}</div>
+              <div class="font-display text-lg font-semibold">{{ displayPullName(selected.session) }}</div>
               <div class="text-sm text-muted-foreground">{{ selected.session.registry }} · {{ selected.session.client_ip }}</div>
             </div>
             <Button variant="ghost" size="sm" @click="selected = null">关闭</Button>
           </div>
           <div class="grid grid-cols-2 gap-2 text-sm">
             <div>流量：{{ formatBytes(selected.session.bytes_total) }}</div>
-            <div>层数：{{ selected.session.layer_count }}</div>
+            <div>类别：<Badge variant="secondary">{{ pullSourceLabel(selected.session) }}</Badge></div>
             <div>HTTP 请求：{{ selected.session.request_count }}</div>
             <div>IP：{{ selected.session.client_ip }}</div>
           </div>

@@ -261,7 +261,7 @@ func EnsureDefaultSettings(rateLimit RateLimitSettings, security SecuritySetting
 			WindowMinutes:        15,
 			IdleMinutes:          30,
 			ManifestProbeSeconds: 60,
-			RetentionDays:        90,
+			RetentionDays:        30,
 		},
 		KeyFeatures:   DefaultFeatureToggles(),
 		KeyRegistries: DefaultRegistryToggles(),
@@ -270,6 +270,9 @@ func EnsureDefaultSettings(rateLimit RateLimitSettings, security SecuritySetting
 		var existing string
 		err := DB.QueryRow(`SELECT value FROM settings WHERE key = ?`, k).Scan(&existing)
 		if err == nil && existing != "" {
+			if k == KeyPullSession {
+				_ = migratePullSessionRetentionDefault(existing)
+			}
 			// merge new registry domains into existing list
 			if k == KeyRegistries {
 				_ = mergeRegistryDefaults()
@@ -284,6 +287,21 @@ func EnsureDefaultSettings(rateLimit RateLimitSettings, security SecuritySetting
 		}
 	}
 	return nil
+}
+
+func migratePullSessionRetentionDefault(existing string) error {
+	var raw map[string]any
+	if err := json.Unmarshal([]byte(existing), &raw); err != nil {
+		return err
+	}
+	v, ok := raw["retention_days"]
+	if ok {
+		if n, ok := v.(float64); !ok || int(n) != 90 {
+			return nil
+		}
+	}
+	raw["retention_days"] = 30
+	return SetSetting(KeyPullSession, raw)
 }
 
 func mergeRegistryDefaults() error {
@@ -470,7 +488,7 @@ func (s SiteSettings) PublicSiteView() map[string]any {
 func LoadPullSession() PullSessionSettings {
 	var s PullSessionSettings
 	if err := GetSetting(KeyPullSession, &s); err != nil || s.WindowMinutes <= 0 {
-		return PullSessionSettings{WindowMinutes: 15, IdleMinutes: 30, ManifestProbeSeconds: 60, RetentionDays: 90}
+		return PullSessionSettings{WindowMinutes: 15, IdleMinutes: 30, ManifestProbeSeconds: 60, RetentionDays: 30}
 	}
 	if s.IdleMinutes <= 0 {
 		s.IdleMinutes = 30
@@ -484,7 +502,7 @@ func LoadPullSession() PullSessionSettings {
 		}
 	}
 	if s.RetentionDays <= 0 {
-		s.RetentionDays = 90
+		s.RetentionDays = 30
 	}
 	return s
 }

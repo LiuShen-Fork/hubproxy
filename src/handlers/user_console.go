@@ -68,11 +68,11 @@ func UserGetToken(c *gin.Context) {
 	// require_token = 必须使用令牌路径 = 未开启公共镜像
 	requireToken := !feat.AllowPublicDockerPull()
 	c.JSON(http.StatusOK, gin.H{
-		"token":          tok,
-		"pull_path":      tok.Token,
-		"examples":       buildTokenExamples(host, tok.Token),
-		"require_token":  requireToken,
-		"public_mirror":  feat.PublicMirror,
+		"token":         tok,
+		"pull_path":     tok.Token,
+		"examples":      buildTokenExamples(host, tok.Token),
+		"require_token": requireToken,
+		"public_mirror": feat.PublicMirror,
 	})
 }
 
@@ -176,6 +176,8 @@ func UserGuide(c *gin.Context) {
 			"方式 A（推荐显式）：docker pull " + host + "/你的令牌/镜像名:标签",
 			"方式 B（daemon.json）：registry-mirrors 配置为 https://" + host + "/你的令牌 ，之后可直接 docker pull nginx",
 			"第三方源：docker pull " + host + "/令牌/ghcr.io/owner/app:tag",
+			"GitHub 文件加速：" + "https://" + host + "/令牌/gh/github.com/owner/repo/releases/...",
+			"Hugging Face 文件加速：" + "https://" + host + "/令牌/hf/huggingface.co/user/repo/resolve/...",
 			"请勿在浏览器中直接打开 /令牌 路径（会返回 404，避免被搜索引擎收录）",
 			"重置令牌后旧令牌立即失效，且永不复用；若用了 daemon.json 需同步改 mirror 路径",
 			"用户 IP 白名单为空表示不限制 IP；配置后仅允许列表内 IP 使用你的令牌",
@@ -194,6 +196,8 @@ func buildTokenExamples(host, token string) map[string]string {
 		"ghcr":         "docker pull " + host + "/" + token + "/ghcr.io/owner/app:latest",
 		"k8s":          "docker pull " + host + "/" + token + "/registry.k8s.io/pause:3.9",
 		"gitlab":       "docker pull " + host + "/" + token + "/registry.gitlab.com/group/project:tag",
+		"github":       "https://" + host + "/" + token + "/gh/github.com/owner/repo/releases/download/v1.0.0/app.tar.gz",
+		"huggingface":  "https://" + host + "/" + token + "/hf/huggingface.co/user/model/resolve/main/config.json",
 		"daemon_json":  "{\n  \"registry-mirrors\": [\"https://" + host + "/" + token + "\"]\n}",
 		"daemon_pull":  "docker pull nginx:latest   # 配合上面的 registry-mirrors",
 	}

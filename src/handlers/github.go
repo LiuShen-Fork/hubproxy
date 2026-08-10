@@ -10,7 +10,6 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"hubproxy/config"
-	"hubproxy/db"
 	"hubproxy/utils"
 )
 
@@ -44,53 +43,7 @@ func GitHubProxyHandler(c *gin.Context) {
 	for strings.HasPrefix(rawPath, "/") {
 		rawPath = strings.TrimPrefix(rawPath, "/")
 	}
-
-	// 自动补全协议头
-	if !strings.HasPrefix(rawPath, "https://") {
-		if strings.HasPrefix(rawPath, "http:/") || strings.HasPrefix(rawPath, "https:/") {
-			rawPath = strings.Replace(rawPath, "http:/", "", 1)
-			rawPath = strings.Replace(rawPath, "https:/", "", 1)
-		} else if strings.HasPrefix(rawPath, "http://") {
-			rawPath = strings.TrimPrefix(rawPath, "http://")
-		}
-		rawPath = "https://" + rawPath
-	}
-
-	feat := db.GlobalRuntime.GetFeatures()
-	isHF := strings.Contains(rawPath, "huggingface.co") || strings.Contains(rawPath, "cdn-lfs.hf.co")
-	if isHF && !feat.HuggingFace {
-		c.String(http.StatusForbidden, "Hugging Face 加速已关闭")
-		return
-	}
-	if !isHF && !feat.GitHub {
-		c.String(http.StatusForbidden, "GitHub 加速已关闭")
-		return
-	}
-
-	matches := CheckGitHubURL(rawPath)
-	if matches != nil {
-		if allowed, reason := utils.GlobalAccessController.CheckGitHubAccess(matches); !allowed {
-			var repoPath string
-			if len(matches) >= 2 {
-				username := matches[0]
-				repoName := strings.TrimSuffix(matches[1], ".git")
-				repoPath = username + "/" + repoName
-			}
-			fmt.Printf("GitHub仓库 %s 访问被拒绝: %s\n", repoPath, reason)
-			c.String(http.StatusForbidden, reason)
-			return
-		}
-	} else {
-		c.String(http.StatusForbidden, "无效输入")
-		return
-	}
-
-	// 将blob链接转换为raw链接
-	if githubExps[1].MatchString(rawPath) {
-		rawPath = strings.Replace(rawPath, "/blob/", "/raw/", 1)
-	}
-
-	ProxyGitHubRequest(c, rawPath)
+	proxyAcceleratedRawPath(c, rawPath, "")
 }
 
 // CheckGitHubURL 检查URL是否匹配GitHub模式
@@ -167,14 +120,7 @@ func proxyGitHubWithRedirect(c *gin.Context, u string, redirectCount int) {
 	resp.Header.Del("Referrer-Policy")
 	resp.Header.Del("Strict-Transport-Security")
 
-	// 获取真实域名
-	realHost := c.Request.Header.Get("X-Forwarded-Host")
-	if realHost == "" {
-		realHost = c.Request.Host
-	}
-	if !strings.HasPrefix(realHost, "http://") && !strings.HasPrefix(realHost, "https://") {
-		realHost = "https://" + realHost
-	}
+	realHost := contentProxyExternalBase(c)
 
 	// 处理.sh和.ps1文件的智能处理
 	if strings.HasSuffix(strings.ToLower(u), ".sh") || strings.HasSuffix(strings.ToLower(u), ".ps1") {
@@ -204,7 +150,7 @@ func proxyGitHubWithRedirect(c *gin.Context, u string, redirectCount int) {
 		// 处理重定向
 		if location := resp.Header.Get("Location"); location != "" {
 			if CheckGitHubURL(location) != nil {
-				c.Header("Location", "/"+location)
+				c.Header("Location", contentProxyRedirectLocation(c, location))
 			} else {
 				proxyGitHubWithRedirect(c, location, redirectCount+1)
 				return
@@ -214,7 +160,12 @@ func proxyGitHubWithRedirect(c *gin.Context, u string, redirectCount int) {
 		c.Status(resp.StatusCode)
 
 		// 输出处理后的内容
-		if _, err := io.Copy(c.Writer, processedBody); err != nil {
+		n, err := io.Copy(c.Writer, processedBody)
+		if n == 0 && processedSize > 0 {
+			n = processedSize
+		}
+		recordContentBytes(c, u, n, resp.StatusCode)
+		if err != nil {
 			return
 		}
 	} else {
@@ -228,7 +179,7 @@ func proxyGitHubWithRedirect(c *gin.Context, u string, redirectCount int) {
 		// 处理重定向
 		if location := resp.Header.Get("Location"); location != "" {
 			if CheckGitHubURL(location) != nil {
-				c.Header("Location", "/"+location)
+				c.Header("Location", contentProxyRedirectLocation(c, location))
 			} else {
 				proxyGitHubWithRedirect(c, location, redirectCount+1)
 				return
@@ -238,7 +189,9 @@ func proxyGitHubWithRedirect(c *gin.Context, u string, redirectCount int) {
 		c.Status(resp.StatusCode)
 
 		// 直接流式转发
-		if _, err := io.Copy(c.Writer, resp.Body); err != nil {
+		n, err := io.Copy(c.Writer, resp.Body)
+		recordContentBytes(c, u, n, resp.StatusCode)
+		if err != nil {
 			fmt.Printf("转发响应体失败: %v\n", err)
 		}
 	}
