@@ -92,15 +92,16 @@ func AdminListPulls(c *gin.Context) {
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "20"))
 	list, total, err := db.ListPullSessions(db.PullListFilter{
-		IP:       c.Query("ip"),
-		Image:    c.Query("image"),
-		Category: c.Query("category"),
-		Registry: c.Query("registry"),
-		Status:   c.Query("status"),
-		From:     c.Query("from"),
-		To:       c.Query("to"),
-		Page:     page,
-		PageSize: pageSize,
+		IP:          c.Query("ip"),
+		Image:       c.Query("image"),
+		Category:    c.Query("category"),
+		Registry:    c.Query("registry"),
+		Status:      c.Query("status"),
+		From:        c.Query("from"),
+		To:          c.Query("to"),
+		Page:        page,
+		PageSize:    pageSize,
+		CountedOnly: true, // hide manifest-only / in-progress noise
 	})
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -449,6 +450,9 @@ func AdminPutPullSession(c *gin.Context) {
 	}
 	if req.ManifestProbeSeconds < 15 {
 		req.ManifestProbeSeconds = 60
+	}
+	if req.RetentionDays < 1 {
+		req.RetentionDays = 90
 	}
 	if err := db.SetSetting(db.KeyPullSession, req); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})

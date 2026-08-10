@@ -189,12 +189,26 @@ func startMaintenanceJobs() {
 		fast := time.NewTicker(20 * time.Second)
 		defer slow.Stop()
 		defer fast.Stop()
+		lastRetentionCleanupDay := ""
+		runDailyRetentionCleanup := func() {
+			day := db.LocalDayStart().Format("2006-01-02")
+			if day == lastRetentionCleanupDay {
+				return
+			}
+			if err := db.CleanupOldPullData(); err != nil {
+				log.Printf("清理旧拉取数据失败: %v", err)
+				return
+			}
+			lastRetentionCleanupDay = day
+		}
+		runDailyRetentionCleanup()
 		for {
 			select {
 			case <-slow.C:
 				_ = db.CleanupExpiredSessions()
 				_ = db.ExpireIdlePullSessions()
 				_ = db.CleanupManifestProbes()
+				runDailyRetentionCleanup()
 			case <-fast.C:
 				_ = db.CleanupManifestProbes()
 			}
@@ -222,6 +236,9 @@ func main() {
 	if err := db.SeedFromConfig(cfg); err != nil {
 		fmt.Printf("初始化设置失败: %v\n", err)
 		return
+	}
+	if err := db.SeedDemoPulls(); err != nil {
+		fmt.Printf("演示数据写入失败: %v\n", err)
 	}
 
 	wireRuntimeCallbacks()

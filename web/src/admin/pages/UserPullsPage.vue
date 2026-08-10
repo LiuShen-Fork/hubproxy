@@ -4,7 +4,6 @@ import Button from '@/components/ui/Button.vue'
 import Input from '@/components/ui/Input.vue'
 import Card from '@/components/ui/Card.vue'
 import CardContent from '@/components/ui/CardContent.vue'
-import Badge from '@/components/ui/Badge.vue'
 import DataTable from '@/components/ui/DataTable.vue'
 import { adminApi, formatBytes, formatTime, type PullSession } from '../api'
 
@@ -56,7 +55,6 @@ watch(page, load)
               <th class="px-3 py-2.5 font-medium">Registry</th>
               <th class="px-3 py-2.5 font-medium whitespace-nowrap">IP</th>
               <th class="px-3 py-2.5 font-medium whitespace-nowrap">流量</th>
-              <th class="px-3 py-2.5 font-medium whitespace-nowrap">状态</th>
             </tr>
           </template>
           <tr v-for="p in items" :key="p.id" class="border-t border-border/70">
@@ -67,7 +65,6 @@ watch(page, load)
             <td class="max-w-[8rem] truncate px-3 py-2.5" :title="p.registry">{{ p.registry }}</td>
             <td class="px-3 py-2.5 font-mono text-xs whitespace-nowrap">{{ p.client_ip }}</td>
             <td class="px-3 py-2.5 whitespace-nowrap">{{ formatBytes(p.bytes_total) }}</td>
-            <td class="px-3 py-2.5 whitespace-nowrap"><Badge variant="outline">{{ p.status }}</Badge></td>
           </tr>
         </DataTable>
         <p v-if="!items.length" class="py-6 text-center text-sm text-muted-foreground">暂无记录</p>

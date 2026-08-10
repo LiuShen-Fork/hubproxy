@@ -39,14 +39,15 @@ func UserListPulls(c *gin.Context) {
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "20"))
 	list, total, err := db.ListPullSessions(db.PullListFilter{
-		IP:       c.Query("ip"),
-		Image:    c.Query("image"),
-		Category: c.Query("category"),
-		Registry: c.Query("registry"),
-		Status:   c.Query("status"),
-		UserID:   u.ID,
-		Page:     page,
-		PageSize: pageSize,
+		IP:          c.Query("ip"),
+		Image:       c.Query("image"),
+		Category:    c.Query("category"),
+		Registry:    c.Query("registry"),
+		Status:      c.Query("status"),
+		UserID:      u.ID,
+		Page:        page,
+		PageSize:    pageSize,
+		CountedOnly: true,
 	})
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})

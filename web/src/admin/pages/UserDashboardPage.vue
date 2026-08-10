@@ -1,11 +1,10 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from 'vue'
-import { Activity, Gauge, HardDrive, Network, Package } from 'lucide-vue-next'
+import { Gauge, HardDrive, Network, Package } from 'lucide-vue-next'
 import Card from '@/components/ui/Card.vue'
 import CardContent from '@/components/ui/CardContent.vue'
 import CardHeader from '@/components/ui/CardHeader.vue'
 import CardTitle from '@/components/ui/CardTitle.vue'
-import Badge from '@/components/ui/Badge.vue'
 import DataTable from '@/components/ui/DataTable.vue'
 import { adminApi, formatBytes, formatTime, type DashboardStats, type UserQuota } from '../api'
 import { pageSlice } from '@/lib/table'
@@ -70,9 +69,9 @@ onUnmounted(() => {
       </div>
     </div>
 
-    <div v-if="stats" class="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-      <Card>
-        <CardContent class="flex items-start justify-between pt-5">
+    <div v-if="stats" class="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+      <Card class="min-h-[7.5rem]">
+        <CardContent class="flex h-full items-start justify-between pt-5">
           <div>
             <div class="text-sm text-muted-foreground">我的总拉取</div>
             <div class="mt-1 font-display text-3xl font-semibold">{{ stats.total_pulls }}</div>
@@ -81,8 +80,8 @@ onUnmounted(() => {
           <div class="rounded-lg bg-primary/10 p-2 text-primary"><Package class="size-5" /></div>
         </CardContent>
       </Card>
-      <Card>
-        <CardContent class="flex items-start justify-between pt-5">
+      <Card class="min-h-[7.5rem]">
+        <CardContent class="flex h-full items-start justify-between pt-5">
           <div>
             <div class="text-sm text-muted-foreground">我的流量</div>
             <div class="mt-1 font-display text-3xl font-semibold">{{ formatBytes(stats.total_bytes) }}</div>
@@ -91,34 +90,27 @@ onUnmounted(() => {
           <div class="rounded-lg bg-primary/10 p-2 text-primary"><HardDrive class="size-5" /></div>
         </CardContent>
       </Card>
-      <Card>
-        <CardContent class="flex items-start justify-between pt-5">
+      <Card class="min-h-[7.5rem]">
+        <CardContent class="flex h-full items-start justify-between pt-5">
           <div>
             <div class="text-sm text-muted-foreground">使用 IP 数</div>
             <div class="mt-1 font-display text-3xl font-semibold">{{ stats.unique_ips }}</div>
+            <div class="mt-1 text-xs text-muted-foreground">累计去重</div>
           </div>
           <div class="rounded-lg bg-primary/10 p-2 text-primary"><Network class="size-5" /></div>
         </CardContent>
       </Card>
-      <Card>
-        <CardContent class="flex items-start justify-between pt-5">
-          <div>
-            <div class="text-sm text-muted-foreground">进行中</div>
-            <div class="mt-1 font-display text-3xl font-semibold">{{ stats.active_pulls }}</div>
-          </div>
-          <div class="rounded-lg bg-primary/10 p-2 text-primary"><Activity class="size-5" /></div>
-        </CardContent>
-      </Card>
     </div>
 
-    <Card v-if="stats">
+    <Card v-if="stats" class="flex min-h-[18rem] flex-col">
       <CardHeader>
         <CardTitle>最近拉取（本账号令牌）</CardTitle>
       </CardHeader>
-      <CardContent>
+      <CardContent class="flex flex-1 flex-col">
         <DataTable
+          v-if="recentTotal"
           v-model:page="recentPage"
-          min-width="560px"
+          min-width="520px"
           max-height="20rem"
           :paginate="recentTotal > recentPageSize"
           :total="recentTotal"
@@ -130,7 +122,6 @@ onUnmounted(() => {
               <th class="px-3 py-2.5 font-medium">镜像</th>
               <th class="px-3 py-2.5 font-medium whitespace-nowrap">IP</th>
               <th class="px-3 py-2.5 font-medium whitespace-nowrap">流量</th>
-              <th class="px-3 py-2.5 font-medium whitespace-nowrap">状态</th>
             </tr>
           </template>
           <tr
@@ -144,10 +135,11 @@ onUnmounted(() => {
             </td>
             <td class="px-3 py-2.5 font-mono text-xs whitespace-nowrap">{{ p.client_ip }}</td>
             <td class="px-3 py-2.5 whitespace-nowrap">{{ formatBytes(p.bytes_total) }}</td>
-            <td class="px-3 py-2.5 whitespace-nowrap"><Badge variant="secondary">{{ p.status }}</Badge></td>
           </tr>
         </DataTable>
-        <p v-if="!recentTotal" class="py-6 text-center text-sm text-muted-foreground">暂无拉取记录</p>
+        <div v-else class="flex flex-1 items-center justify-center text-sm text-muted-foreground">
+          暂无拉取记录
+        </div>
       </CardContent>
     </Card>
   </div>
