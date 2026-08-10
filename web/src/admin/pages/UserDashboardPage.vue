@@ -1,20 +1,23 @@
 <script setup lang="ts">
 import { onMounted, onUnmounted, ref } from 'vue'
-import { Activity, HardDrive, Network, Package } from 'lucide-vue-next'
+import { Activity, Gauge, HardDrive, Network, Package } from 'lucide-vue-next'
 import Card from '@/components/ui/Card.vue'
 import CardContent from '@/components/ui/CardContent.vue'
 import CardHeader from '@/components/ui/CardHeader.vue'
 import CardTitle from '@/components/ui/CardTitle.vue'
 import Badge from '@/components/ui/Badge.vue'
-import { adminApi, formatBytes, formatTime, type DashboardStats } from '../api'
+import { adminApi, formatBytes, formatTime, type DashboardStats, type UserQuota } from '../api'
 
 const stats = ref<DashboardStats | null>(null)
+const quota = ref<UserQuota | null>(null)
 const error = ref('')
 let timer: number | undefined
 
 async function load() {
   try {
-    stats.value = await adminApi.userDashboard(14)
+    const res = await adminApi.userDashboard(14)
+    stats.value = res.stats
+    quota.value = res.quota
     error.value = ''
   } catch (e: any) {
     error.value = e?.message || '加载失败'
@@ -33,6 +36,34 @@ onUnmounted(() => {
 <template>
   <div class="space-y-6">
     <p v-if="error" class="text-sm text-destructive">{{ error }}</p>
+
+    <div v-if="quota" class="rounded-xl border border-primary/20 bg-primary/5 p-5">
+      <div class="flex flex-wrap items-center justify-between gap-3">
+        <div class="flex items-center gap-3">
+          <div class="rounded-lg bg-primary/15 p-2 text-primary"><Gauge class="size-5" /></div>
+          <div>
+            <div class="font-display text-lg font-semibold">今日拉取配额</div>
+            <div class="text-sm text-muted-foreground">
+              每日本地时间 0 点刷新 · 下次重置 {{ quota.resets_at_human }}
+            </div>
+          </div>
+        </div>
+        <div class="text-right">
+          <div class="font-display text-3xl font-semibold tabular-nums">
+            <span :class="quota.remaining <= 3 ? 'text-destructive' : ''">{{ quota.remaining }}</span>
+            <span class="text-lg text-muted-foreground"> / {{ quota.daily_limit === 0 ? '∞' : quota.daily_limit }}</span>
+          </div>
+          <div class="text-xs text-muted-foreground">剩余 / 上限（今日已用 {{ quota.used_today }}）</div>
+        </div>
+      </div>
+      <div v-if="quota.daily_limit > 0" class="mt-3 h-2 overflow-hidden rounded-full bg-muted">
+        <div
+          class="h-full rounded-full bg-primary transition-all"
+          :style="{ width: `${Math.min(100, (quota.used_today / quota.daily_limit) * 100)}%` }"
+        />
+      </div>
+    </div>
+
     <div v-if="stats" class="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
       <Card>
         <CardContent class="flex items-start justify-between pt-5">

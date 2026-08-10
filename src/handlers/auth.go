@@ -14,7 +14,7 @@ const (
 	ctxUserKey   = "auth_user"
 	ctxSessionID = "auth_session_id"
 	loginWindow  = 15 * time.Minute
-	maxFailures  = 10
+	maxFailures  = 5
 )
 
 func extractBearer(c *gin.Context) string {
@@ -30,24 +30,44 @@ func extractBearer(c *gin.Context) string {
 
 func setSessionCookie(c *gin.Context, token string) {
 	secure := c.Request.TLS != nil || strings.EqualFold(c.GetHeader("X-Forwarded-Proto"), "https")
-	c.SetSameSite(http.SameSiteLaxMode)
+	c.SetSameSite(http.SameSiteStrictMode)
+	// HttpOnly + Secure(when HTTPS) + Path limited to admin API
 	c.SetCookie(cookieName, token, int(db.SessionTTL.Seconds()), "/api/admin", "", secure, true)
 }
 
 func clearSessionCookie(c *gin.Context) {
 	secure := c.Request.TLS != nil || strings.EqualFold(c.GetHeader("X-Forwarded-Proto"), "https")
-	c.SetSameSite(http.SameSiteLaxMode)
+	c.SetSameSite(http.SameSiteStrictMode)
 	c.SetCookie(cookieName, "", -1, "/api/admin", "", secure, true)
+}
+
+// SecurityHeadersMiddleware hardens browser responses.
+func SecurityHeadersMiddleware() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		c.Header("X-Content-Type-Options", "nosniff")
+		c.Header("X-Frame-Options", "DENY")
+		c.Header("Referrer-Policy", "no-referrer")
+		c.Header("Permissions-Policy", "geolocation=(), microphone=(), camera=()")
+		if strings.HasPrefix(c.Request.URL.Path, "/api/") {
+			c.Header("Cache-Control", "no-store")
+		}
+		c.Next()
+	}
 }
 
 func AuthRequired() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		token := extractBearer(c)
+		if token == "" {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "未登录或会话已过期", "code": "UNAUTHORIZED"})
+			return
+		}
 		sess, user, err := db.GetSessionByToken(token)
 		if err != nil {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "未登录或会话已过期", "code": "UNAUTHORIZED"})
 			return
 		}
+		_ = sess // session validated via token hash + expiry
 		c.Set(ctxUserKey, user)
 		c.Set(ctxSessionID, sess.ID)
 		c.Next()
@@ -108,16 +128,25 @@ func AuthLogin(c *gin.Context) {
 	ip := c.ClientIP()
 	fails, _ := db.CountRecentLoginFailures(ip, loginWindow)
 	if fails >= maxFailures {
-		c.JSON(http.StatusTooManyRequests, gin.H{"error": "登录尝试过多，请稍后再试", "code": "LOGIN_THROTTLED"})
+		c.JSON(http.StatusTooManyRequests, gin.H{
+			"error": "登录失败次数过多，请 15 分钟后再试",
+			"code":  "LOGIN_THROTTLED",
+		})
+		return
+	}
+
+	req.Username = strings.TrimSpace(req.Username)
+	if len(req.Username) == 0 || len(req.Password) == 0 || len(req.Password) > 128 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "参数无效", "code": "BAD_REQUEST"})
 		return
 	}
 
 	user, hash, err := db.GetUserByUsername(req.Username)
 	if err != nil || !db.CheckPassword(hash, req.Password) {
 		_ = db.RecordLoginAttempt(ip, req.Username, false)
-		// constant-ish delay against timing
-		time.Sleep(200 * time.Millisecond)
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "用户名或密码错误"})
+		// constant-ish delay against timing / brute force
+		time.Sleep(300 * time.Millisecond)
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "用户名或密码错误", "code": "INVALID_CREDENTIALS"})
 		return
 	}
 

@@ -59,9 +59,18 @@ export interface User {
   username: string
   role: 'admin' | 'user'
   must_change_password: boolean
+  daily_pull_limit: number
   created_at: string
   updated_at: string
   last_login_at?: string
+}
+
+export interface UserQuota {
+  daily_limit: number
+  used_today: number
+  remaining: number
+  resets_at: string
+  resets_at_human: string
 }
 
 export interface PullSession {
@@ -112,7 +121,7 @@ export interface FeatureToggles {
   huggingface: boolean
   image_search: boolean
   offline_image: boolean
-  require_user_token: boolean
+  public_mirror: boolean
 }
 
 export interface RegistryToggle {
@@ -195,7 +204,7 @@ export const adminApi = {
   users: () => request<{ items: User[] }>('/users'),
   createUser: (body: { username: string; password: string; role?: string }) =>
     request<{ user: User }>('/users', { method: 'POST', body: JSON.stringify(body) }),
-  updateUser: (id: number, body: { username?: string; role?: string; password?: string }) =>
+  updateUser: (id: number, body: { username?: string; role?: string; password?: string; daily_pull_limit?: number }) =>
     request<{ user: User }>(`/users/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
   deleteUser: (id: number) => request<{ ok: boolean }>(`/users/${id}`, { method: 'DELETE' }),
   settings: () => request<SettingsBundle>('/settings'),
@@ -223,7 +232,9 @@ export const adminApi = {
     request(`/security/whitelist?ip=${encodeURIComponent(ip)}`, { method: 'DELETE' }),
 
   // user console
-  userDashboard: (days = 14) => request<DashboardStats>(`/user/dashboard?days=${days}`),
+  userDashboard: (days = 14) =>
+    request<{ stats: DashboardStats; quota: UserQuota }>(`/user/dashboard?days=${days}`),
+  userQuota: () => request<UserQuota>('/user/quota'),
   userPulls: (q: Record<string, string | number | undefined>) => {
     const sp = new URLSearchParams()
     Object.entries(q).forEach(([k, v]) => {

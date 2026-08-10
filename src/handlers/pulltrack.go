@@ -82,23 +82,36 @@ func recordPullBytes(c *gin.Context, eventType, reference string, bytes int64, s
 }
 
 // CheckPullQuota returns false if IP/user exceeded pull session limit.
+// User-bound pulls use per-user daily limit (local midnight reset).
+// Anonymous/public pulls use global IP pull_limit if configured.
 func CheckPullQuota(ip string, userID int64) (bool, string) {
-	// whitelist IPs skip pull quota
 	if globalLimiterExempt(ip) {
+		return true, ""
+	}
+	if userID > 0 {
+		u, err := db.GetUserByID(userID)
+		if err != nil {
+			return false, "用户无效"
+		}
+		limit := u.DailyPullLimit
+		if limit < 0 {
+			limit = 0
+		}
+		// 0 = unlimited for that user
+		if limit == 0 {
+			return true, ""
+		}
+		n, err := db.CountPullsByUserToday(userID)
+		if err != nil {
+			return true, ""
+		}
+		if n >= limit {
+			return false, fmt.Sprintf("今日拉取次数已用尽（%d/%d，每日 0 点刷新）", n, limit)
+		}
 		return true, ""
 	}
 	rl := db.GlobalRuntime.GetRateLimit()
 	if rl.PullLimit <= 0 {
-		return true, ""
-	}
-	if userID > 0 {
-		n, err := db.CountPullsByUserInPeriod(userID, rl.PeriodHours)
-		if err != nil {
-			return true, ""
-		}
-		if n >= rl.PullLimit {
-			return false, fmt.Sprintf("账号拉取次数超限（%d/%g小时）", rl.PullLimit, rl.PeriodHours)
-		}
 		return true, ""
 	}
 	n, err := db.CountPullsByIPInPeriod(ip, rl.PeriodHours)
@@ -106,7 +119,7 @@ func CheckPullQuota(ip string, userID int64) (bool, string) {
 		return true, ""
 	}
 	if n >= rl.PullLimit {
-		return false, fmt.Sprintf("拉取次数超限（%d/%g小时）", rl.PullLimit, rl.PeriodHours)
+		return false, fmt.Sprintf("公共拉取次数超限（%d 次 / %g 小时）", rl.PullLimit, rl.PeriodHours)
 	}
 	return true, ""
 }

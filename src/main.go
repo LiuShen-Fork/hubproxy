@@ -115,6 +115,7 @@ func buildRouter(cfg *config.AppConfig) *gin.Engine {
 		// Gin will still hit NoRoute for unmatched routes — handled below.
 	})
 
+	router.Use(handlers.SecurityHeadersMiddleware())
 	router.Use(utils.RateLimitMiddleware(globalLimiter))
 	// registry-mirrors: https://host/TOKEN → /TOKEN/v2/... rewrite
 	router.Use(handlers.NormalizeMirrorTokenPath())
@@ -128,7 +129,7 @@ func buildRouter(cfg *config.AppConfig) *gin.Engine {
 	router.Any("/token", handlers.ProxyDockerAuthGin)
 	router.Any("/token/*path", handlers.ProxyDockerAuthGin)
 	router.Any("/v2/*path", handlers.ProxyDockerRegistryGin)
-	// registry-mirrors path prefix form (explicit route; middleware also normalizes)
+	// registry-mirrors path prefix form (must stay specific; do not add /:token catch-all)
 	router.Any("/:token/v2", handlers.ProxyDockerRegistryMirrorPrefix)
 	router.Any("/:token/v2/*filepath", handlers.ProxyDockerRegistryMirrorPrefix)
 
@@ -143,6 +144,23 @@ func buildRouter(cfg *config.AppConfig) *gin.Engine {
 				"version": Version,
 			})
 			return
+		}
+		// Browser/crawler hit on /TOKEN or /TOKEN/... (not /TOKEN/v2 which is registered):
+		// return 404 JSON + noindex so SPA is not served and tokens are not indexed.
+		trim := strings.TrimPrefix(path, "/")
+		parts := strings.SplitN(trim, "/", 3)
+		if len(parts) >= 1 && isAlnumToken(parts[0]) {
+			// allow only docker registry under token; anything else (/, /foo, bare token) → 404
+			if len(parts) == 1 || (len(parts) >= 2 && parts[1] != "v2" && parts[1] != "token") {
+				c.Header("X-Robots-Tag", "noindex, nofollow, noarchive")
+				c.Header("Cache-Control", "no-store")
+				c.JSON(http.StatusNotFound, gin.H{
+					"error": "页面不存在",
+					"code":  "NOT_FOUND",
+					"hint":  "此路径仅用于 Docker 镜像拉取，请勿在浏览器中打开",
+				})
+				return
+			}
 		}
 		handlers.GitHubProxyHandler(c)
 	})
@@ -249,6 +267,19 @@ func main() {
 	if err := server.ListenAndServe(); err != nil {
 		fmt.Printf("启动服务失败: %v\n", err)
 	}
+}
+
+func isAlnumToken(s string) bool {
+	if len(s) != 8 {
+		return false
+	}
+	for _, r := range s {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') {
+			continue
+		}
+		return false
+	}
+	return true
 }
 
 func formatDuration(d time.Duration) string {

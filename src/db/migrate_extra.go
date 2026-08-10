@@ -15,6 +15,7 @@ CREATE TABLE IF NOT EXISTS users (
 	password_hash TEXT NOT NULL,
 	role TEXT NOT NULL DEFAULT 'user' CHECK(role IN ('admin','user')),
 	must_change_password INTEGER NOT NULL DEFAULT 0,
+	daily_pull_limit INTEGER NOT NULL DEFAULT 30,
 	created_at TEXT NOT NULL,
 	updated_at TEXT NOT NULL,
 	last_login_at TEXT
@@ -134,6 +135,16 @@ func ensureColumns() error {
 	}
 	if !cols["access_token"] {
 		if _, err := DB.Exec(`ALTER TABLE pull_sessions ADD COLUMN access_token TEXT`); err != nil {
+			return err
+		}
+	}
+
+	ucols, err := tableColumns("users")
+	if err != nil {
+		return err
+	}
+	if !ucols["daily_pull_limit"] {
+		if _, err := DB.Exec(`ALTER TABLE users ADD COLUMN daily_pull_limit INTEGER NOT NULL DEFAULT 30`); err != nil {
 			return err
 		}
 	}

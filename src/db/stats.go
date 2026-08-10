@@ -223,6 +223,59 @@ func CountPullsByUserInPeriod(userID int64, periodHours float64) (int, error) {
 	return n, err
 }
 
+// LocalDayStart returns today's 00:00:00 in local timezone as RFC3339Nano UTC string bound.
+func LocalDayStart() time.Time {
+	now := time.Now()
+	y, m, d := now.Date()
+	return time.Date(y, m, d, 0, 0, 0, 0, now.Location())
+}
+
+func CountPullsByUserToday(userID int64) (int, error) {
+	since := LocalDayStart().UTC().Format(time.RFC3339Nano)
+	var n int
+	err := DB.QueryRow(
+		`SELECT COUNT(*) FROM pull_sessions WHERE user_id = ? AND started_at >= ?`,
+		userID, since,
+	).Scan(&n)
+	return n, err
+}
+
+type UserQuota struct {
+	DailyLimit    int    `json:"daily_limit"`
+	UsedToday     int    `json:"used_today"`
+	Remaining     int    `json:"remaining"`
+	ResetsAt      string `json:"resets_at"`
+	ResetsAtHuman string `json:"resets_at_human"`
+}
+
+func GetUserQuota(userID int64) (*UserQuota, error) {
+	u, err := GetUserByID(userID)
+	if err != nil {
+		return nil, err
+	}
+	used, err := CountPullsByUserToday(userID)
+	if err != nil {
+		return nil, err
+	}
+	limit := u.DailyPullLimit
+	if limit < 0 {
+		limit = 0
+	}
+	remaining := limit - used
+	if remaining < 0 {
+		remaining = 0
+	}
+	// next local midnight
+	next := LocalDayStart().Add(24 * time.Hour)
+	return &UserQuota{
+		DailyLimit:    limit,
+		UsedToday:     used,
+		Remaining:     remaining,
+		ResetsAt:      next.Format(time.RFC3339),
+		ResetsAtHuman: next.Local().Format("2006-01-02 15:04"),
+	}, nil
+}
+
 func GetUserDashboardStats(userID int64, days int) (*DashboardStats, error) {
 	if days <= 0 {
 		days = 14
