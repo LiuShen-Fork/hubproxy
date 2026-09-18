@@ -1,0 +1,29 @@
+# 发布专用镜像：直接使用「打包二进制」阶段编译好的产物，内部不再重新编译。
+#
+# 与 Dockerfile 的分工：
+#   Dockerfile          从源码完整构建（前端 → Go → 运行时），自建用户与本地开发用
+#   Dockerfile.runtime  只用现成二进制拼出运行时层，发布流程用
+#
+# 复用二进制不只是省掉一次编译和一次 UPX：它让镜像里的程序与 Release 里发布的
+# 二进制是同一个文件，而不是两次独立编译的产物。
+#
+# 构建上下文里必须同时存在两个架构的产物，缺一个则该架构构建失败：
+#   build/hubproxy/hubproxy-linux-amd64
+#   build/hubproxy/hubproxy-linux-arm64
+
+FROM alpine
+
+# buildx 多平台构建时注入，取值为 amd64 或 arm64
+ARG TARGETARCH
+
+WORKDIR /app
+
+COPY build/hubproxy/hubproxy-linux-${TARGETARCH} /app/hubproxy
+COPY src/config.toml /app/config.toml
+
+# 这条 RUN 在 arm64 上需要模拟执行（纯 COPY 不需要），
+# 所以工作流里必须带 docker/setup-qemu-action。
+RUN mkdir -p /app/data
+VOLUME ["/app/data"]
+
+CMD ["./hubproxy"]
