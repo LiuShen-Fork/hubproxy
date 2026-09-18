@@ -1964,7 +1964,11 @@ grep -rn "'/images'\|/gh/\|/hf/" web/src
 grep -rn "admin/login" web/src src --include=*.vue --include=*.ts --include=*.go | grep -v "/api/admin/login"
 ```
 
-Expected: 全部无输出。若 `web/src` 中仍有 `huggingface` 命中，检查是否是 `web/src/admin/api.ts` 或站点文案的残留。最后一条若命中，说明还有地方在跳转已删除的旧登录页。
+Expected：
+- 第一条（被删符号）：**无输出**。任何命中都是真残留。
+- 第二条（`huggingface`）：会有命中，但**全部是合理留存**，预期恰为这 6 处 —— `src/db/settings_test.go:17,33`（Task 2 新增的移除回归测试与旧 JSON 兼容测试，本就以这两个字符串为断言对象与夹具内容）、`src/db/stats.go:658,661`（历史 category 聚合查询）、`src/main_test.go:274,276`（断言 `/admin/login` 已消失的测试）。除此之外的任何命中都要查。
+- 第三条（`'/images'`、`/gh/`、`/hf/`）：**无输出**。
+- 第四条（`admin/login`）：**无输出**（`/api/admin/login` 已被 `grep -v` 排除）。若命中，说明还有地方在跳转已删除的旧登录页。
 
 - [ ] **Step 3: 启动服务并做拉取链路回归**
 
