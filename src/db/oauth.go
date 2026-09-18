@@ -137,7 +137,7 @@ func CreateOAuthUser(preferredUsername, email string) (*User, error) {
 		}
 	}
 
-	// random password (user can set later); oauth users skip must_change if we set must_change=0
+	// random password; user is forced to replace it on first sign-in
 	raw, err := GenerateToken()
 	if err != nil {
 		return nil, err
@@ -151,7 +151,8 @@ func CreateOAuthUser(preferredUsername, email string) (*User, error) {
 	if err != nil {
 		return nil, err
 	}
-	// oauth-created: no force password change
-	_, _ = DB.Exec(`UPDATE users SET must_change_password = 0 WHERE id = ?`, u.ID)
+	// oauth 建号时密码是随机生成的，用户并不知道。必须强制其走一次改密，
+	// 否则该账号永远无法用用户名密码登录。
+	_, _ = DB.Exec(`UPDATE users SET must_change_password = 1 WHERE id = ?`, u.ID)
 	return GetUserByID(u.ID)
 }
