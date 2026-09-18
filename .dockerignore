@@ -1,0 +1,33 @@
+# 两条构建路径共用（Dockerfile 与 Dockerfile.runtime）。
+
+# .git 体积最大，且没有任何 Dockerfile 需要它
+.git
+
+# 与镜像内容无关
+.github
+.superpowers
+docs
+*.md
+LICENSE
+install.sh
+packaging
+
+# 这一条修的是实际缺陷，不只是瘦身：Dockerfile 先 npm ci，紧接着 COPY web/ . ，
+# 若宿主机的 node_modules 也在构建上下文里，它会覆盖容器内刚装好的那一份。
+# 在 Windows 上开发时尤其致命——那批依赖是为另一个平台编译的。
+web/node_modules
+web/dist
+web/.tmp
+
+# 同理，src/data 里是真实的用户、会话与统计数据，不该进入构建上下文。
+src/data
+
+# 前端产物由 Dockerfile 的 frontend 阶段生成后 COPY --from 过来，
+# 上下文里那份（可能已过期）不需要也不应该参与构建。
+src/dist
+
+# 本地编译残留
+*.exe
+
+# 注意：绝不能排除 build/。Dockerfile.runtime 正是从
+# build/hubproxy/ 里取预编译好的二进制。
