@@ -6,13 +6,14 @@ import ToastHost from '@/components/ToastHost.vue'
 import AnnouncementModal from '@/components/AnnouncementModal.vue'
 
 const route = useRoute()
-const isAdmin = computed(() => route.path.startsWith('/admin'))
+// 全屏独立页面（控制台、登录、注册）不套站点外壳，直接整屏渲染
+const isBare = computed(() => route.meta.bare === true)
 </script>
 
 <template>
   <ToastHost />
   <AnnouncementModal />
-  <RouterView v-if="isAdmin" />
+  <RouterView v-if="isBare" />
   <AppShell v-else>
     <RouterView v-slot="{ Component, route: r }">
       <Transition name="page">

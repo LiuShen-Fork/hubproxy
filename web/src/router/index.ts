@@ -36,18 +36,18 @@ const router = createRouter({
       path: '/login',
       component: AuthPage,
       props: { mode: 'login' },
-      meta: { title: '登录' },
+      meta: { title: '登录', bare: true },
     },
     {
       path: '/register',
       component: AuthPage,
       props: { mode: 'register' },
-      meta: { title: '注册' },
+      meta: { title: '注册', bare: true },
     },
     {
       path: '/admin',
       component: AdminLayout,
-      meta: { requiresAuth: true },
+      meta: { requiresAuth: true, bare: true },
       children: [
         // admin console
         {
