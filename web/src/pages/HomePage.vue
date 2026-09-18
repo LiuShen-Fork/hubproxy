@@ -2,37 +2,23 @@
 import { computed, onMounted, ref } from 'vue'
 import { RouterLink } from 'vue-router'
 import {
-  Check,
-  Clipboard,
   Container,
   Globe2,
-  Link2,
-  Rocket,
   Search,
   Shield,
-  Sparkles,
   Zap,
 } from 'lucide-vue-next'
 import Button from '@/components/ui/Button.vue'
-import Input from '@/components/ui/Input.vue'
 import PageHero from '@/components/PageHero.vue'
-import { copyText } from '@/lib/utils'
 import { site } from '@/lib/site'
 import { adminApi, getToken } from '@/admin/api'
 import { setAccessToken } from '@/lib/accessToken'
 
-const input = ref('')
-const output = ref('')
-const error = ref('')
-const copied = ref(false)
 const accessToken = ref('')
 const authenticated = ref(false)
 const runtimeFeatures = ref({
   docker_hub: true,
-  github: true,
-  huggingface: true,
   image_search: true,
-  offline_image: true,
   public_mirror: false,
 })
 
@@ -41,16 +27,15 @@ const tokenLabel = computed(() => accessToken.value || '令牌')
 const requireToken = computed(() => !runtimeFeatures.value.public_mirror)
 
 const features = [
-  { icon: Rocket, label: 'GitHub 加速' },
   { icon: Container, label: 'Docker 镜像' },
-  { icon: Sparkles, label: 'Hugging Face' },
+  { icon: Zap, label: '多源 Registry' },
 ] as const
 
 const highlights = [
   {
     icon: Zap,
     title: '多源统一加速',
-    desc: 'Docker、GitHub、Hugging Face 一站接入，减少切换成本。',
+    desc: 'Docker Hub、GHCR、GCR、Quay 等 Registry 一站接入，减少切换成本。',
   },
   {
     icon: Shield,
@@ -103,22 +88,6 @@ const dockerRegistries = [
   },
 ] as const
 
-const githubSources = [
-  { kind: 'gh', name: 'Release / Archive', sample: 'github.com/owner/repo/releases/...' },
-  { kind: 'gh', name: 'Raw / Blob', sample: 'github.com/owner/repo/raw|blob/...' },
-  { kind: 'gh', name: 'Git Clone', sample: 'github.com/owner/repo.git' },
-  { kind: 'gh', name: 'GitHub API', sample: 'api.github.com/repos/owner/repo/...' },
-  { kind: 'gh', name: 'Gist', sample: 'gist.github.com / gist.githubusercontent.com' },
-  { kind: 'gh', name: 'Assets', sample: 'github.githubassets.com / opengraph.githubassets.com' },
-  { kind: 'hf', name: 'Hugging Face', sample: 'huggingface.co / cdn-lfs.hf.co' },
-] as const
-
-const visibleGithubSources = computed(() =>
-  githubSources.filter((item) =>
-    item.kind === 'hf' ? runtimeFeatures.value.huggingface : runtimeFeatures.value.github,
-  ),
-)
-
 const dockerExamples = computed(() => [
   {
     id: 'official',
@@ -139,86 +108,6 @@ const dockerExamples = computed(() => [
     accelerated: `docker pull ${host.value}/${tokenLabel.value}/ghcr.io/org/app`,
   },
 ])
-
-const githubPatterns = [
-  /^github\.com\/[^/?#]+\/[^/?#]+\/(?:releases|archive)\/.+/,
-  /^github\.com\/[^/?#]+\/[^/?#]+\/(?:blob|raw)\/.+/,
-  /^github\.com\/[^/?#]+\/[^/?#]+\/(?:info|git-).*/,
-  /^raw\.github(?:usercontent|)\.com\/[^/?#]+\/[^/?#]+\/.+?\/.+/,
-  /^gist\.(?:githubusercontent|github)\.com\/[^/?#]+\/[^/?#]+.*/,
-  /^api\.github\.com\/repos\/[^/?#]+\/[^/?#]+\/.*/,
-  /^(?:github|opengraph)\.githubassets\.com\/[^/?#]+\/.+/,
-]
-
-const huggingFacePatterns = [
-  /^huggingface\.co(?:\/spaces)?\/[^/?#]+\/.+/,
-  /^cdn-lfs\.hf\.co(?:\/spaces)?\/[^/?#]+\/[^/?#]+(?:\/.*)?/,
-]
-
-function sourceKind(link: string): 'gh' | 'hf' | '' {
-  const clean = link.replace(/^https?:\/\//, '')
-  if (huggingFacePatterns.some((pattern) => pattern.test(clean))) return 'hf'
-  if (githubPatterns.some((pattern) => pattern.test(clean))) return 'gh'
-  return ''
-}
-
-function contentPrefix(kind: 'gh' | 'hf'): string {
-  if (authenticated.value && accessToken.value) return `https://${host.value}/${accessToken.value}/${kind}`
-  if (runtimeFeatures.value.public_mirror) return `https://${host.value}/${kind}`
-  return ''
-}
-
-const contentUsageExample = computed(() => {
-  const prefix = contentPrefix('gh')
-  if (!prefix) return ''
-  return `${prefix}/github.com/...`
-})
-
-function formatLink() {
-  error.value = ''
-  copied.value = false
-  const link = input.value.trim()
-  if (!link) {
-    error.value = '请输入有效的链接'
-    output.value = ''
-    return
-  }
-
-  const kind = sourceKind(link)
-  if (!kind) {
-    error.value = '请输入有效的 GitHub / Hugging Face 链接'
-    output.value = ''
-    return
-  }
-  if (kind === 'gh' && !runtimeFeatures.value.github) {
-    error.value = 'GitHub 加速已关闭'
-    output.value = ''
-    return
-  }
-  if (kind === 'hf' && !runtimeFeatures.value.huggingface) {
-    error.value = 'Hugging Face 加速已关闭'
-    output.value = ''
-    return
-  }
-  const prefix = contentPrefix(kind)
-  if (!prefix) {
-    error.value = '公共加速已关闭，请先登录控制台获取访问令牌'
-    output.value = ''
-    return
-  }
-
-  output.value = `${prefix}/${link.replace(/^https?:\/\//, '')}`
-}
-
-async function onCopy() {
-  if (!output.value) return
-  copied.value = await copyText(output.value)
-}
-
-function onOpen() {
-  if (!output.value) return
-  window.open(output.value, '_blank', 'noopener,noreferrer')
-}
 
 onMounted(async () => {
   try {
@@ -248,7 +137,7 @@ onMounted(async () => {
     <PageHero
       :eyebrow="site.fullName"
       :title="site.name"
-      :subtitle="`Docker · GitHub · Hugging Face 多源加速 · ${site.tagline}`"
+      :subtitle="`Docker 多源镜像加速 · ${site.tagline}`"
       gradient
     >
       <div class="flex flex-wrap justify-center gap-2 pt-2">
@@ -262,8 +151,8 @@ onMounted(async () => {
         </span>
       </div>
       <div class="flex flex-wrap justify-center gap-2 pt-4">
-        <a href="#accelerate">
-          <Button>立即加速</Button>
+        <a href="#docker-pull">
+          <Button>立即拉取</Button>
         </a>
         <RouterLink to="/search">
           <Button variant="outline">
@@ -288,52 +177,13 @@ onMounted(async () => {
       </div>
     </section>
 
-    <section id="accelerate" class="surface-panel field-block">
-      <div class="mb-4 space-y-1 text-center sm:text-left">
-        <h2 class="font-display text-lg font-semibold">链接加速</h2>
-        <p class="text-sm text-muted-foreground">粘贴 GitHub / Hugging Face 原始链接，一键生成加速地址</p>
-      </div>
-      <div class="flex flex-col gap-3 sm:flex-row">
-        <Input
-          v-model="input"
-          class="sm:flex-1"
-          placeholder="粘贴 GitHub / Hugging Face 原始链接"
-          @keyup.enter="formatLink"
-        />
-        <Button class="shrink-0" @click="formatLink">获取加速链接</Button>
-      </div>
-
-      <Transition name="fade" mode="out-in">
-        <p v-if="error" key="error" class="text-center text-destructive">{{ error }}</p>
-        <div v-else-if="output" key="output" class="space-y-4 pt-2">
-          <div class="flex items-center justify-center gap-2 font-medium text-primary">
-            <Check class="size-4" />
-            加速链接已生成
-          </div>
-          <p class="break-all rounded-lg border border-border bg-muted/40 px-4 py-3.5 font-mono">
-            {{ output }}
-          </p>
-          <div class="flex flex-wrap justify-center gap-2">
-            <Button variant="secondary" size="sm" @click="onCopy">
-              <Clipboard class="size-4" />
-              {{ copied ? '已复制' : '复制链接' }}
-            </Button>
-            <Button variant="secondary" size="sm" @click="onOpen">
-              <Link2 class="size-4" />
-              打开链接
-            </Button>
-          </div>
-        </div>
-      </Transition>
-    </section>
-
     <section class="space-y-6 pt-12">
       <div class="space-y-1 text-center">
         <h2 class="text-sm font-semibold tracking-[0.16em] text-muted-foreground uppercase">
           支持的镜像源
         </h2>
         <p class="text-muted-foreground">
-          当前程序内置并启用的 Registry 与文件加速源
+          当前程序内置并启用的 Registry 加速源
         </p>
       </div>
 
@@ -357,7 +207,7 @@ onMounted(async () => {
               </p>
             </div>
           </div>
-          <p v-if="contentUsageExample" class="mt-3 text-xs text-muted-foreground">
+          <p class="mt-3 text-xs text-muted-foreground">
             说明：登录控制台获取 8 位令牌。可用
             <code class="rounded bg-muted px-1">docker pull 域名/令牌/镜像</code>
             ，或在 daemon.json 配置
@@ -366,31 +216,10 @@ onMounted(async () => {
             <span v-if="requireToken">当前公共加速关闭，主页会优先使用本地保存的访问令牌生成链接。</span>
           </p>
         </div>
-
-        <div class="surface-panel rounded-xl border border-border/60 p-5 sm:col-span-2">
-          <div class="mb-3 flex items-center gap-2">
-            <Rocket class="size-4 text-primary" />
-            <h3 class="font-display font-semibold">GitHub / Hugging Face</h3>
-          </div>
-          <div class="grid gap-2 sm:grid-cols-2">
-            <div
-              v-for="item in visibleGithubSources"
-              :key="item.name"
-              class="flex items-start justify-between gap-3 rounded-lg border border-border/70 bg-muted/20 px-3 py-2.5"
-            >
-              <span class="text-sm font-medium">{{ item.name }}</span>
-              <span class="text-right font-mono text-[11px] text-muted-foreground">{{ item.sample }}</span>
-            </div>
-          </div>
-          <p class="mt-3 text-xs text-muted-foreground">
-            用法：使用统一子路径，例如
-            <span class="font-mono text-primary">{{ contentUsageExample }}</span>
-          </p>
-        </div>
       </div>
     </section>
 
-    <section class="space-y-6 pt-12">
+    <section id="docker-pull" class="space-y-6 pt-12">
       <div class="space-y-1 text-center">
         <h2 class="text-sm font-semibold tracking-[0.16em] text-muted-foreground uppercase">
           Docker 镜像加速

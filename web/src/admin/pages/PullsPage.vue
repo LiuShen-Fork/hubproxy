@@ -12,8 +12,6 @@ import { adminApi, displayPullName, formatBytes, formatTime, pullSourceLabel, ty
 
 const categoryOptions = [
   { value: '', label: '全部类别' },
-  { value: 'github', label: 'GitHub' },
-  { value: 'huggingface', label: 'Hugging Face' },
 ]
 const route = useRoute()
 const items = ref<PullSession[]>([])

@@ -11,8 +11,6 @@ import { adminApi, formatBytes, pullSourceLabel } from '../api'
 
 const categoryOptions = [
   { value: '', label: '全部类别' },
-  { value: 'github', label: 'GitHub' },
-  { value: 'huggingface', label: 'Hugging Face' },
 ]
 
 const items = ref<any[]>([])

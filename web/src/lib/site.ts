@@ -20,7 +20,7 @@ const defaults: SiteInfo = {
   name: '镜像加速',
   fullName: '自建多源镜像',
   tagline: '',
-  description: '多源镜像加速服务，支持 Docker、GitHub、Hugging Face。',
+  description: '多源镜像加速服务，支持 Docker Hub、GHCR、GCR、Quay 等 Registry。',
   authorHome: AUTHOR_HOME,
   projectName: 'HubProxy',
   projectUrl: 'https://github.com/LiuShen-Fork/hubproxy',

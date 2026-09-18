@@ -64,20 +64,6 @@ onMounted(async () => {
         </div>
         <div class="flex items-center justify-between rounded-lg border border-border p-4">
           <div>
-            <div class="font-medium">GitHub 加速</div>
-            <div class="text-sm text-muted-foreground">Release / Raw / Clone / API</div>
-          </div>
-          <Switch v-model:checked="settings.features.github" />
-        </div>
-        <div class="flex items-center justify-between rounded-lg border border-border p-4">
-          <div>
-            <div class="font-medium">Hugging Face</div>
-            <div class="text-sm text-muted-foreground">模型与 LFS 文件</div>
-          </div>
-          <Switch v-model:checked="settings.features.huggingface" />
-        </div>
-        <div class="flex items-center justify-between rounded-lg border border-border p-4">
-          <div>
             <div class="font-medium">镜像搜索</div>
             <div class="text-sm text-muted-foreground">Web / API 搜索 Docker Hub</div>
           </div>

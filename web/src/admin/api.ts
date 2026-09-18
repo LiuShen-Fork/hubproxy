@@ -41,14 +41,6 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
       (typeof data === 'string' ? data : '') ||
       res.statusText ||
       '请求失败'
-    // 旧进程未注册路由时会落到 GitHub 代理，返回纯文本「无效输入」
-    if (res.status === 403 && (msg.includes('无效输入') || text.includes('无效输入'))) {
-      throw new ApiError(
-        '接口未找到（无效输入）。请停掉旧 hubproxy 进程后用最新代码重启：cd src; go run .',
-        res.status,
-        'STALE_SERVER',
-      )
-    }
     throw new ApiError(msg, res.status, data?.code)
   }
   return data as T
@@ -116,8 +108,6 @@ export interface DashboardStats {
 
 export interface FeatureToggles {
   docker_hub: boolean
-  github: boolean
-  huggingface: boolean
   image_search: boolean
   offline_image: boolean
   public_mirror: boolean
@@ -391,22 +381,13 @@ export function formatTime(iso?: string): string {
 }
 
 export function categoryLabel(category?: string): string {
-  if (category === 'github') return 'GitHub'
-  if (category === 'huggingface') return 'Hugging Face'
   return category || '-'
 }
 
 export function pullSourceLabel(p: Pick<PullSession, 'category' | 'registry'>): string {
-  if (p.category === 'github') return 'GitHub'
-  if (p.category === 'huggingface') return 'Hugging Face'
   return p.registry || 'Docker'
 }
 
 export function displayPullName(p: PullSession): string {
-  if (p.category === 'github' || p.category === 'huggingface') {
-    const clean = (p.image_name || '').split('?')[0].replace(/\/$/, '')
-    const base = clean.split('/').filter(Boolean).pop()
-    return base || p.tag || p.image_name
-  }
   return p.tag ? `${p.image_name}:${p.tag}` : p.image_name
 }
