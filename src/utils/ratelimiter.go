@@ -260,7 +260,7 @@ func IPInList(ip string, list []string) bool {
 func RateLimitMiddleware(limiter *IPRateLimiter) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		path := c.Request.URL.Path
-		if path == "/" || path == "/images" || path == "/search" || path == "/admin" ||
+		if path == "/" || path == "/login" || path == "/register" || path == "/search" || path == "/admin" ||
 			path == "/favicon.ico" ||
 			strings.HasPrefix(path, "/assets/") ||
 			strings.HasPrefix(path, "/admin/") {

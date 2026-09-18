@@ -384,7 +384,7 @@ export function categoryLabel(category?: string): string {
   return category || '-'
 }
 
-export function pullSourceLabel(p: Pick<PullSession, 'category' | 'registry'>): string {
+export function pullSourceLabel(p: Pick<PullSession, 'registry'>): string {
   return p.registry || 'Docker'
 }
 

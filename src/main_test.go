@@ -246,6 +246,10 @@ func TestTokenBrowsePathKeepsNoindex(t *testing.T) {
 	if tag := w.Header().Get("X-Robots-Tag"); !strings.Contains(tag, "noindex") {
 		t.Fatalf("X-Robots-Tag = %q, want noindex", tag)
 	}
+	// 按设计文档 3.2，该路径必须同时带 Cache-Control: no-store
+	if cc := w.Header().Get("Cache-Control"); !strings.Contains(cc, "no-store") {
+		t.Fatalf("Cache-Control = %q, want no-store", cc)
+	}
 }
 
 func TestAuthPagesServeSPAWhenFrontendEnabled(t *testing.T) {
@@ -265,6 +269,10 @@ enableFrontend = true
 	}
 }
 
+// 说明：本用例只是"前瞻性护栏"。前端关闭时 /admin/login 由既有的
+// GET /admin/*path → notFound 通配兜住，在本分支之前的基线提交上同样是 404，
+// 因此它并不能证明本分支删掉了这条路由；保留它是为了防止日后有人把
+// /admin/login 重新注册回来。
 func TestOldAdminLoginRouteIsGone(t *testing.T) {
 	router := newTestRouter(t, `
 [server]

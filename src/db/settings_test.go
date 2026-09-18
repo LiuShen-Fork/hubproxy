@@ -30,7 +30,10 @@ func TestLoadFeaturesToleratesLegacyGitHubKeys(t *testing.T) {
 		t.Fatalf("migrate: %v", err)
 	}
 
-	legacy := `{"docker_hub":true,"github":true,"huggingface":false,"image_search":true,` +
+	// image_search 刻意取 false：与 DefaultFeatureToggles 的 true 不同，
+	// 这样若 LoadFeatures 走了"读取/反序列化失败即回退默认值"的兜底分支，
+	// 断言就会失败，测试才真正区分得出解析路径与回退路径
+	legacy := `{"docker_hub":true,"github":true,"huggingface":false,"image_search":false,` +
 		`"offline_image":true,"public_mirror":false}`
 	if _, err := DB.Exec(
 		`INSERT INTO settings (key, value, updated_at) VALUES (?, ?, ?)`,
@@ -40,8 +43,11 @@ func TestLoadFeaturesToleratesLegacyGitHubKeys(t *testing.T) {
 	}
 
 	got := LoadFeatures()
-	if !got.DockerHub || !got.ImageSearch || !got.OfflineImage {
+	if !got.DockerHub || !got.OfflineImage {
 		t.Fatalf("legacy flags lost: %#v", got)
+	}
+	if got.ImageSearch {
+		t.Fatalf("image_search should stay false, fell back to defaults: %#v", got)
 	}
 	if got.PublicMirror {
 		t.Fatalf("public_mirror should stay false: %#v", got)
