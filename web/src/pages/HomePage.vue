@@ -15,7 +15,6 @@ import { adminApi, getToken } from '@/admin/api'
 import { setAccessToken } from '@/lib/accessToken'
 
 const accessToken = ref('')
-const authenticated = ref(false)
 const runtimeFeatures = ref({
   docker_hub: true,
   image_search: true,
@@ -122,12 +121,10 @@ onMounted(async () => {
     await adminApi.me()
     const res = await adminApi.userToken()
     accessToken.value = res.token?.token || ''
-    authenticated.value = true
     setAccessToken(accessToken.value)
   } catch {
-    // A stale admin token must not unlock private acceleration links.
+    // 令牌失效时清空，避免用旧令牌生成无法使用的 Docker 加速地址。
     accessToken.value = ''
-    authenticated.value = false
   }
 })
 </script>
