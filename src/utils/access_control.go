@@ -7,14 +7,6 @@ import (
 	"hubproxy/config"
 )
 
-// ResourceType 资源类型
-type ResourceType string
-
-const (
-	ResourceTypeGitHub ResourceType = "github"
-	ResourceTypeDocker ResourceType = "docker"
-)
-
 // AccessController 统一访问控制器
 type AccessController struct {
 	mu        sync.RWMutex
@@ -163,51 +155,6 @@ func (ac *AccessController) matchImageInList(imageInfo DockerImageInfo, list []s
 
 		if strings.HasPrefix(fullName, item+"/") {
 			return true
-		}
-	}
-	return false
-}
-
-// checkList GitHub仓库检查逻辑
-func (ac *AccessController) checkList(matches, list []string) bool {
-	if len(matches) < 2 {
-		return false
-	}
-
-	username := strings.ToLower(strings.TrimSpace(matches[0]))
-	repoName := strings.ToLower(strings.TrimSpace(strings.TrimSuffix(matches[1], ".git")))
-	fullRepo := username + "/" + repoName
-
-	for _, item := range list {
-		item = strings.ToLower(strings.TrimSpace(item))
-		if item == "" {
-			continue
-		}
-
-		if fullRepo == item {
-			return true
-		}
-
-		if item == username || item == username+"/*" {
-			return true
-		}
-
-		if strings.HasSuffix(item, "*") {
-			prefix := strings.TrimSuffix(item, "*")
-			if strings.HasPrefix(fullRepo, prefix) {
-				return true
-			}
-		}
-
-		if strings.HasPrefix(fullRepo, item+"/") {
-			return true
-		}
-
-		if strings.HasPrefix(item, "*/") {
-			p := item[2:]
-			if p == repoName || (strings.HasSuffix(p, "*") && strings.HasPrefix(repoName, p[:len(p)-1])) {
-				return true
-			}
 		}
 	}
 	return false

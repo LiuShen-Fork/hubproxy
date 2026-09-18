@@ -126,24 +126,6 @@ func authenticateAccessTokenPath(c *gin.Context, tok string) (userID int64, deni
 	return at.UserID, ""
 }
 
-// DenyTokenPathBrowse returns 404 JSON for browser/search-engine hits on /TOKEN or /TOKEN/...
-// that are not valid Docker registry API paths, to avoid indexing personal tokens.
-func DenyTokenPathBrowse(c *gin.Context) {
-	tok := c.Param("token")
-	if !db.IsAccessTokenFormat(tok) {
-		c.Status(http.StatusNotFound)
-		return
-	}
-	// valid docker paths under token are handled by other routes; this is catch-all browse
-	c.Header("X-Robots-Tag", "noindex, nofollow, noarchive")
-	c.Header("Cache-Control", "no-store")
-	c.JSON(http.StatusNotFound, gin.H{
-		"error": "页面不存在",
-		"code":  "NOT_FOUND",
-		"hint":  "此路径仅用于 Docker 镜像拉取，请勿在浏览器中打开",
-	})
-}
-
 func accessUserFromContext(c *gin.Context) (userID int64) {
 	if v, ok := c.Get(ctxAccessUserID); ok {
 		if id, ok := v.(int64); ok {
