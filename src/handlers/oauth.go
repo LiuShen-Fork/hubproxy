@@ -271,6 +271,7 @@ func OAuthCallback(c *gin.Context) {
 		return
 	}
 	var user *db.User
+	created := false
 	if binding != nil {
 		user, err = db.GetUserByID(binding.UserID)
 		if err != nil {
@@ -296,6 +297,7 @@ func OAuthCallback(c *gin.Context) {
 			redirectOAuthError(c, err.Error())
 			return
 		}
+		created = true
 	}
 
 	sessionToken, _, err := db.CreateSession(user.ID, c.ClientIP(), c.Request.UserAgent())
@@ -313,7 +315,18 @@ func OAuthCallback(c *gin.Context) {
 	if user.MustChangePassword {
 		dest = "/admin/change-password"
 	}
-	c.Redirect(http.StatusFound, dest+"#oauth_token="+url.QueryEscape(sessionToken))
+	c.Redirect(http.StatusFound, buildOAuthRedirect(dest, sessionToken, created))
+}
+
+// buildOAuthRedirect 构造登录后的回跳地址，会话令牌放在 URL fragment 中。
+// fragment 不会发送给服务端，因此令牌不会进入访问日志或 Referer 头。
+// created 为真表示本次是第三方首次登录、系统自动建号，前端据此提示用户。
+func buildOAuthRedirect(dest, sessionToken string, created bool) string {
+	frag := "oauth_token=" + url.QueryEscape(sessionToken)
+	if created {
+		frag += "&welcome=1"
+	}
+	return dest + "#" + frag
 }
 
 func redirectOAuthError(c *gin.Context, msg string) {

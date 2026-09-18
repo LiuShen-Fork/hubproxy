@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { RouterLink, RouterView, useRoute, useRouter } from 'vue-router'
 import {
   LayoutDashboard,
@@ -22,10 +22,24 @@ import { useAuth } from './auth'
 import Button from '@/components/ui/Button.vue'
 import { cn } from '@/lib/utils'
 import { site } from '@/lib/site'
+import { toastSuccess } from '@/lib/toast'
 
 const route = useRoute()
 const router = useRouter()
 const { user, logout, isAdmin } = useAuth()
+
+// 第三方首次登录时后端自动建号，落地后提示一次
+onMounted(() => {
+  if (sessionStorage.getItem('hubproxy_oauth_welcome') !== '1') return
+  sessionStorage.removeItem('hubproxy_oauth_welcome')
+  const name = user.value?.username || ''
+  toastSuccess(
+    name
+      ? `已自动为你创建账号：${name}，请先设置密码`
+      : '已自动为你创建账号，请先设置密码',
+  )
+})
+
 const open = ref(false)
 
 // NOTE: must not match /admin/users (admin user management)
