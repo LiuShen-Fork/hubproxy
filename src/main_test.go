@@ -134,15 +134,6 @@ maxImages = 1
 	}
 }
 
-func TestGitHubNoRouteRejectsUnsupportedHost(t *testing.T) {
-	router := newTestRouter(t, "")
-
-	w := performRequest(router, http.MethodGet, "/https://example.com/file.zip", "")
-	if w.Code != http.StatusForbidden {
-		t.Fatalf("status = %d, want 403; body=%s", w.Code, w.Body.String())
-	}
-}
-
 func TestDockerV2PingAndInvalidPath(t *testing.T) {
 	router := newTestRouter(t, "")
 
@@ -192,5 +183,67 @@ enableFrontend = true
 	}
 	if !strings.Contains(w.Body.String(), `<div id="app">`) {
 		t.Fatalf("SPA shell missing: %s", w.Body.String())
+	}
+}
+
+func TestRemovedAccelerationPathsReturnNotFound(t *testing.T) {
+	router := newTestRouter(t, "")
+
+	for _, path := range []string{
+		"/gh/owner/repo/raw/main/a.txt",
+		"/hf/owner/model/resolve/main/x.bin",
+		"/https://example.com/file.zip",
+	} {
+		w := performRequest(router, http.MethodGet, path, "")
+		if w.Code != http.StatusNotFound {
+			t.Fatalf("%s status = %d, want 404; body=%s", path, w.Code, w.Body.String())
+		}
+	}
+}
+
+func TestUnmatchedPathReturnsJSONNotFound(t *testing.T) {
+	router := newTestRouter(t, "")
+
+	w := performRequest(router, http.MethodGet, "/nonexistent", "")
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want 404; body=%s", w.Code, w.Body.String())
+	}
+	if ct := w.Header().Get("Content-Type"); !strings.Contains(ct, "application/json") {
+		t.Fatalf("content-type = %q, want application/json", ct)
+	}
+	var got map[string]string
+	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
+		t.Fatalf("body is not JSON: %v; body=%s", err, w.Body.String())
+	}
+	if got["error"] != "页面不存在" || got["code"] != "NOT_FOUND" {
+		t.Fatalf("unexpected body: %#v", got)
+	}
+}
+
+func TestUnmatchedAPIPathReturnsJSONNotFound(t *testing.T) {
+	router := newTestRouter(t, "")
+
+	w := performRequest(router, http.MethodGet, "/api/nonexistent", "")
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want 404; body=%s", w.Code, w.Body.String())
+	}
+	var got map[string]string
+	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
+		t.Fatalf("body is not JSON: %v; body=%s", err, w.Body.String())
+	}
+	if got["code"] != "NOT_FOUND" {
+		t.Fatalf("unexpected body: %#v", got)
+	}
+}
+
+func TestTokenBrowsePathKeepsNoindex(t *testing.T) {
+	router := newTestRouter(t, "")
+
+	w := performRequest(router, http.MethodGet, "/Ab12Cd34", "")
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want 404; body=%s", w.Code, w.Body.String())
+	}
+	if tag := w.Header().Get("X-Robots-Tag"); !strings.Contains(tag, "noindex") {
+		t.Fatalf("X-Robots-Tag = %q, want noindex", tag)
 	}
 }

@@ -105,16 +105,6 @@ func buildRouter(cfg *config.AppConfig) *gin.Engine {
 		})
 	}))
 
-	// Block API paths from ever falling into GitHub proxy (must be early)
-	router.Use(func(c *gin.Context) {
-		if strings.HasPrefix(c.Request.URL.Path, "/api/") {
-			c.Set("api_request", true)
-		}
-		c.Next()
-		// If an /api request ended with no response written and not aborted by a handler,
-		// Gin will still hit NoRoute for unmatched routes — handled below.
-	})
-
 	router.Use(handlers.SecurityHeadersMiddleware())
 	router.Use(utils.RateLimitMiddleware(globalLimiter))
 	// registry-mirrors: https://host/TOKEN → /TOKEN/v2/... rewrite
@@ -132,14 +122,7 @@ func buildRouter(cfg *config.AppConfig) *gin.Engine {
 	// registry-mirrors path prefix form (must stay specific; do not add /:token catch-all)
 	router.Any("/:token/v2", handlers.ProxyDockerRegistryMirrorPrefix)
 	router.Any("/:token/v2/*filepath", handlers.ProxyDockerRegistryMirrorPrefix)
-	// Token-scoped content acceleration. Public /gh and /hf are allowed only
-	// when the public mirror switch is enabled.
-	router.Any("/gh/*path", handlers.ProxyGitHubPublicPath)
-	router.Any("/hf/*path", handlers.ProxyHuggingFacePublicPath)
-	router.Any("/:token/gh/*path", handlers.ProxyGitHubTokenPath)
-	router.Any("/:token/hf/*path", handlers.ProxyHuggingFaceTokenPath)
-
-	// API 未匹配路由返回 JSON，避免落入 GitHub 代理返回「无效输入」
+	// 未匹配路由一律 404 JSON。GitHub 代理兜底已移除，不再有任何 catch-all 转发。
 	router.NoRoute(func(c *gin.Context) {
 		path := c.Request.URL.Path
 		if strings.HasPrefix(path, "/api/") {
@@ -151,12 +134,11 @@ func buildRouter(cfg *config.AppConfig) *gin.Engine {
 			})
 			return
 		}
-		// Browser/crawler hit on /TOKEN or /TOKEN/... (not /TOKEN/v2 which is registered):
-		// return 404 JSON + noindex so SPA is not served and tokens are not indexed.
+		// 浏览器/爬虫误访问 /TOKEN 或 /TOKEN/...（/TOKEN/v2 已注册，不会走到这里）：
+		// 返回 404 JSON + noindex，避免个人令牌被搜索引擎索引。
 		trim := strings.TrimPrefix(path, "/")
 		parts := strings.SplitN(trim, "/", 3)
 		if len(parts) >= 1 && isAlnumToken(parts[0]) {
-			// allow only docker registry under token; anything else (/, /foo, bare token) → 404
 			if len(parts) == 1 || (len(parts) >= 2 && parts[1] != "v2" && parts[1] != "token") {
 				c.Header("X-Robots-Tag", "noindex, nofollow, noarchive")
 				c.Header("Cache-Control", "no-store")
@@ -168,7 +150,10 @@ func buildRouter(cfg *config.AppConfig) *gin.Engine {
 				return
 			}
 		}
-		handlers.GitHubProxyHandler(c)
+		c.JSON(http.StatusNotFound, gin.H{
+			"error": "页面不存在",
+			"code":  "NOT_FOUND",
+		})
 	})
 
 	return router

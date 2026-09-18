@@ -81,47 +81,6 @@ func trackDockerPull(c *gin.Context, imageName, registry, tag, eventType, refere
 	return sess, ""
 }
 
-func trackContentPull(c *gin.Context, imageName, registry, reference, category string) (*db.PullSession, string) {
-	if imageName == "" {
-		return nil, ""
-	}
-	if registry == "" {
-		registry = category
-	}
-	if reference == "" {
-		reference = "file"
-	}
-	ip := c.ClientIP()
-	userID := accessUserFromContext(c)
-
-	existing, err := db.FindActivePullSession(ip, imageName, registry, userID)
-	if err != nil {
-		fmt.Printf("content session lookup error: %v\n", err)
-	}
-
-	if existing == nil || existing.LayerCount == 0 {
-		if ok, reason := CheckPullQuota(ip, userID); !ok {
-			return nil, reason
-		}
-	}
-
-	sess, _, err := db.FindOrCreatePullSessionWithCategory(ip, imageName, registry, reference, category, "file", userID)
-	if err != nil {
-		fmt.Printf("content session error: %v\n", err)
-		return nil, ""
-	}
-	if sess == nil {
-		return nil, ""
-	}
-	if sess.LayerCount == 0 {
-		if ok, reason := CheckPullQuota(ip, userID); !ok {
-			return nil, reason
-		}
-	}
-	c.Set("pull_session_id", sess.ID)
-	return sess, ""
-}
-
 func recordPullBytes(c *gin.Context, eventType, reference string, bytes int64, statusCode int) {
 	id, ok := c.Get("pull_session_id")
 	if !ok {
@@ -134,13 +93,6 @@ func recordPullBytes(c *gin.Context, eventType, reference string, bytes int64, s
 	if err := db.RecordPullEvent(sessionID, eventType, reference, bytes, statusCode); err != nil {
 		fmt.Printf("record pull event error: %v\n", err)
 	}
-}
-
-func recordContentBytes(c *gin.Context, reference string, bytes int64, statusCode int) {
-	if statusCode < 200 || statusCode >= 400 {
-		return
-	}
-	recordPullBytes(c, "file", reference, bytes, statusCode)
 }
 
 // CheckPullQuota returns false if IP/user exceeded pull session limit.
