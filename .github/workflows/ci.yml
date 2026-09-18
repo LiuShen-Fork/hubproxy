@@ -1,0 +1,64 @@
+name: 代码检查
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v6
+
+      # Go 主包用 //go:embed all:dist 内嵌前端产物，而 src/dist/ 被 .gitignore 排除。
+      # 全新检出时该目录不存在，go build 会直接失败：
+      #   pattern all:dist: no matching files found
+      # 所以必须先构建前端——这也与 Dockerfile 的阶段顺序一致。
+      #
+      # 缓存 src/dist：key 由 web/ 下全部文件哈希而成，前端源码没变时直接恢复产物、
+      # 完全跳过 npm 安装与构建，这次运行就只剩 Go 检查。
+      - name: 缓存前端产物
+        id: dist-cache
+        uses: actions/cache@v5
+        with:
+          path: src/dist
+          key: dist-${{ hashFiles('web/**') }}
+
+      - name: 配置 Node
+        if: steps.dist-cache.outputs.cache-hit != 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: 安装前端依赖
+        if: steps.dist-cache.outputs.cache-hit != 'true'
+        working-directory: web
+        run: npm ci
+
+      # npm run build = vue-tsc -b && vite build，类型检查包含在内。
+      # 前端源码未变时不会走到这里，所以类型检查恰好只在可能引入类型错误的那次运行生效。
+      - name: 构建前端
+        if: steps.dist-cache.outputs.cache-hit != 'true'
+        working-directory: web
+        run: npm run build
+
+      - name: 配置 Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: 'src/go.mod'
+          cache-dependency-path: src/go.sum
+
+      - name: 静态检查
+        working-directory: src
+        run: go vet ./...
+
+      - name: 编译
+        working-directory: src
+        run: go build ./...
+
+      - name: 单元测试
+        working-directory: src
+        run: go test ./...
