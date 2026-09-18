@@ -1,23 +1,44 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, type Component } from 'vue'
 import { RouterLink, useRoute } from 'vue-router'
-import { ExternalLink, Github, Menu, Rocket, Search, X, Zap } from 'lucide-vue-next'
+import { ExternalLink, Github, LogIn, Menu, Rocket, Search, UserPlus, X, Zap } from 'lucide-vue-next'
 import Button from '@/components/ui/Button.vue'
 import ThemeToggle from '@/components/ThemeToggle.vue'
 import { site } from '@/lib/site'
+import { adminApi } from '@/admin/api'
+import { useAuth } from '@/admin/auth'
+
+type NavLink = { to: string; label: string; icon: Component }
 
 const STORAGE_KEY = 'theme'
 const route = useRoute()
 const isDark = ref(false)
 const menuOpen = ref(false)
 
-const links = [
-  { to: '/', label: '镜像加速', icon: Rocket },
-  { to: '/search', label: '镜像搜索', icon: Search },
-  { to: '/admin', label: '管理后台', icon: Zap },
-] as const
+const { user, bootstrap } = useAuth()
+const registerEnabled = ref(false)
 
-const currentPath = computed(() => route.path)
+const navLinks = computed<NavLink[]>(() => {
+  const links: NavLink[] = [
+    { to: '/', label: '镜像加速', icon: Rocket },
+    { to: '/search', label: '镜像搜索', icon: Search },
+  ]
+  if (user.value) {
+    links.push({ to: '/admin', label: '管理后台', icon: Zap })
+    return links
+  }
+  links.push({ to: '/login', label: '登录账号', icon: LogIn })
+  // 注册关闭时不给入口，避免点进一个必然被拒的页面
+  if (registerEnabled.value) {
+    links.push({ to: '/register', label: '注册账号', icon: UserPlus })
+  }
+  return links
+})
+
+function isActive(to: string): boolean {
+  if (to === '/admin') return route.path.startsWith('/admin')
+  return route.path === to
+}
 
 function applyTheme(dark: boolean) {
   isDark.value = dark
@@ -33,12 +54,20 @@ function closeMenu() {
   menuOpen.value = false
 }
 
-onMounted(() => {
+onMounted(async () => {
   const saved = localStorage.getItem(STORAGE_KEY)
   if (saved === 'dark' || saved === 'light') {
     applyTheme(saved === 'dark')
   } else {
     applyTheme(window.matchMedia('(prefers-color-scheme: dark)').matches)
+  }
+
+  await bootstrap()
+  try {
+    const cfg = await adminApi.publicConfig()
+    registerEnabled.value = !!(cfg.form_register_enabled ?? cfg.register_enabled)
+  } catch {
+    /* 拉取失败时按未开启注册处理 */
   }
 })
 </script>
@@ -60,11 +89,11 @@ onMounted(() => {
 
         <nav class="hidden items-center gap-1.5 md:flex">
           <RouterLink
-            v-for="link in links"
+            v-for="link in navLinks"
             :key="link.to"
             :to="link.to"
             class="inline-flex items-center gap-1.5 rounded-full px-4 py-2 text-[15px] transition-colors duration-150"
-            :class="currentPath === link.to ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-accent hover:text-foreground'"
+            :class="isActive(link.to) ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-accent hover:text-foreground'"
           >
             <component :is="link.icon" class="size-4" />
             {{ link.label }}
@@ -87,11 +116,11 @@ onMounted(() => {
         <div v-if="menuOpen" class="border-t border-border px-5 py-2 md:hidden">
           <div class="flex flex-col gap-1">
             <RouterLink
-              v-for="link in links"
+              v-for="link in navLinks"
               :key="link.to"
               :to="link.to"
               class="inline-flex items-center gap-2 rounded-full px-3.5 py-2 text-[15px] transition-colors"
-              :class="currentPath === link.to ? 'bg-primary text-primary-foreground' : 'text-muted-foreground'"
+              :class="isActive(link.to) ? 'bg-primary text-primary-foreground' : 'text-muted-foreground'"
               @click="closeMenu"
             >
               <component :is="link.icon" class="size-4" />

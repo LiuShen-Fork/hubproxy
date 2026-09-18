@@ -2,7 +2,7 @@ import { createRouter, createWebHistory } from 'vue-router'
 import HomePage from '@/pages/HomePage.vue'
 import SearchPage from '@/pages/SearchPage.vue'
 import AdminLayout from '@/admin/AdminLayout.vue'
-import LoginPage from '@/admin/pages/LoginPage.vue'
+import AuthPage from '@/pages/AuthPage.vue'
 import ChangePasswordPage from '@/admin/pages/ChangePasswordPage.vue'
 import DashboardPage from '@/admin/pages/DashboardPage.vue'
 import PullsPage from '@/admin/pages/PullsPage.vue'
@@ -16,7 +16,7 @@ import UserDashboardPage from '@/admin/pages/UserDashboardPage.vue'
 import UserTokenPage from '@/admin/pages/UserTokenPage.vue'
 import UserPullsPage from '@/admin/pages/UserPullsPage.vue'
 import UserIPPage from '@/admin/pages/UserIPPage.vue'
-import { getToken } from '@/admin/api'
+import type { User } from '@/admin/api'
 import { useAuth } from '@/admin/auth'
 
 const router = createRouter({
@@ -33,9 +33,16 @@ const router = createRouter({
       meta: { title: '镜像搜索' },
     },
     {
-      path: '/admin/login',
-      component: LoginPage,
-      meta: { title: '登录', public: true },
+      path: '/login',
+      component: AuthPage,
+      props: { mode: 'login' },
+      meta: { title: '登录' },
+    },
+    {
+      path: '/register',
+      component: AuthPage,
+      props: { mode: 'register' },
+      meta: { title: '注册' },
     },
     {
       path: '/admin',
@@ -119,23 +126,30 @@ const router = createRouter({
   },
 })
 
+const AUTH_ENTRY_PATHS = ['/login', '/register']
+
+function consoleHome(user: User): string {
+  if (user.must_change_password) return '/admin/change-password'
+  return user.role === 'admin' ? '/admin' : '/admin/user'
+}
+
 router.beforeEach(async (to) => {
-  if (!to.path.startsWith('/admin')) return true
+  const isAuthEntry = AUTH_ENTRY_PATHS.includes(to.path)
+  if (!isAuthEntry && !to.path.startsWith('/admin')) return true
 
   const auth = useAuth()
   if (!auth.loaded.value) {
     await auth.bootstrap()
   }
 
-  if (to.meta.public) {
-    if (getToken() && auth.user.value && !auth.user.value.must_change_password) {
-      return auth.user.value.role === 'admin' ? '/admin' : '/admin/user'
-    }
+  // 已登录用户不应再看到登录页/注册页
+  if (isAuthEntry) {
+    if (auth.user.value) return consoleHome(auth.user.value)
     return true
   }
 
-  if (!getToken() || !auth.user.value) {
-    return { path: '/admin/login', query: { redirect: to.fullPath } }
+  if (!auth.user.value) {
+    return { path: '/login', query: { redirect: to.fullPath } }
   }
 
   if (auth.user.value.must_change_password && to.path !== '/admin/change-password') {
@@ -146,7 +160,7 @@ router.beforeEach(async (to) => {
     return '/admin/user'
   }
 
-  // plain users landing on /admin root
+  // 普通用户落到 /admin 根路径
   if (to.path === '/admin' && auth.user.value.role !== 'admin') {
     return '/admin/user'
   }

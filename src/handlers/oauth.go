@@ -330,7 +330,7 @@ func buildOAuthRedirect(dest, sessionToken string, created bool) string {
 }
 
 func redirectOAuthError(c *gin.Context, msg string) {
-	c.Redirect(http.StatusFound, "/admin/login?oauth_error="+url.QueryEscape(msg))
+	c.Redirect(http.StatusFound, "/login?oauth_error="+url.QueryEscape(msg))
 }
 
 func OAuthListBindings(c *gin.Context) {

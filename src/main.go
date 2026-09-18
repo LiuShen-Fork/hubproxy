@@ -66,6 +66,8 @@ func registerFrontendRoutes(router *gin.Engine, enabled bool) {
 		notFound := func(c *gin.Context) { c.Status(http.StatusNotFound) }
 		router.GET("/", notFound)
 		router.GET("/search", notFound)
+		router.GET("/login", notFound)
+		router.GET("/register", notFound)
 		router.GET("/admin", notFound)
 		router.GET("/admin/*path", notFound)
 		router.GET("/assets/*filepath", notFound)
@@ -75,6 +77,8 @@ func registerFrontendRoutes(router *gin.Engine, enabled bool) {
 
 	router.GET("/", serveSPA)
 	router.GET("/search", serveSPA)
+	router.GET("/login", serveSPA)
+	router.GET("/register", serveSPA)
 	router.GET("/admin", serveSPA)
 	router.GET("/admin/*path", serveSPA)
 	router.GET("/favicon.ico", func(c *gin.Context) {

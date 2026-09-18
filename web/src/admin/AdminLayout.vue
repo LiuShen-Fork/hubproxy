@@ -80,7 +80,7 @@ const nav = computed(() => {
 
 async function onLogout() {
   await logout()
-  router.push('/admin/login')
+  router.push('/login')
 }
 
 function isActive(to: string, exact?: boolean) {

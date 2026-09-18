@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { ArrowLeft, Container, Loader2, ShieldCheck } from 'lucide-vue-next'
 import Button from '@/components/ui/Button.vue'
@@ -9,10 +9,12 @@ import Card from '@/components/ui/Card.vue'
 import CardContent from '@/components/ui/CardContent.vue'
 import CardHeader from '@/components/ui/CardHeader.vue'
 import CardTitle from '@/components/ui/CardTitle.vue'
-import { adminApi } from '../api'
-import { useAuth } from '../auth'
+import { adminApi } from '@/admin/api'
+import { useAuth } from '@/admin/auth'
 import { applySiteFromApi, site } from '@/lib/site'
 import { toastError, toastSuccess } from '@/lib/toast'
+
+const props = defineProps<{ mode: 'login' | 'register' }>()
 
 const router = useRouter()
 const route = useRoute()
@@ -28,7 +30,8 @@ const registerEnabled = ref(false)
 const emailRegister = ref(false)
 const oauthLogin = ref(false)
 const oauthLabel = ref('OAuth2 登录')
-const mode = ref<'login' | 'register'>('login')
+
+const isRegister = computed(() => props.mode === 'register')
 
 onMounted(async () => {
   const qErr = route.query.oauth_error
@@ -72,15 +75,15 @@ async function submit() {
   error.value = ''
   loading.value = true
   try {
-    if (mode.value === 'register') {
+    if (isRegister.value) {
       await adminApi.register(
         username.value,
         password.value,
         emailRegister.value ? email.value : undefined,
         emailRegister.value ? code.value : undefined,
       )
-      mode.value = 'login'
       toastSuccess('注册成功，请登录')
+      await router.replace('/login')
       return
     }
     const user = await login(username.value, password.value)
@@ -90,8 +93,8 @@ async function submit() {
       await router.replace(user.role === 'admin' ? '/admin' : '/admin/user')
     }
   } catch (e: any) {
-    error.value = e?.message || '登录失败'
-    toastError(e?.message || '登录失败')
+    error.value = e?.message || (isRegister.value ? '注册失败' : '登录失败')
+    toastError(error.value)
   } finally {
     loading.value = false
   }
@@ -129,12 +132,18 @@ async function submit() {
           <div class="space-y-1.5">
             <CardTitle class="font-display text-2xl tracking-tight">{{ site.name }}</CardTitle>
             <p class="text-sm text-muted-foreground">
-              {{ mode === 'login' ? '登录控制台' : '创建账号' }}
+              {{ isRegister ? '创建账号' : '登录控制台' }}
             </p>
           </div>
         </CardHeader>
         <CardContent class="pt-2">
-          <form class="space-y-4" @submit.prevent="submit">
+          <p
+            v-if="isRegister && !registerEnabled"
+            class="rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive"
+          >
+            当前站点已关闭注册，请联系管理员开通账号。
+          </p>
+          <form v-else class="space-y-4" @submit.prevent="submit">
             <div class="space-y-2">
               <Label for="username">用户名</Label>
               <Input id="username" v-model="username" autocomplete="username" placeholder="请输入用户名" required />
@@ -145,12 +154,12 @@ async function submit() {
                 id="password"
                 v-model="password"
                 type="password"
-                autocomplete="current-password"
-                placeholder="请输入密码"
+                :autocomplete="isRegister ? 'new-password' : 'current-password'"
+                :placeholder="isRegister ? '至少 8 位' : '请输入密码'"
                 required
               />
             </div>
-            <template v-if="mode === 'register' && emailRegister">
+            <template v-if="isRegister && emailRegister">
               <div class="space-y-2">
                 <Label>邮箱</Label>
                 <Input v-model="email" type="email" placeholder="用于接收验证码" required />
@@ -168,10 +177,10 @@ async function submit() {
             <p v-if="error" class="rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">{{ error }}</p>
             <Button class="h-11 w-full rounded-xl" :disabled="loading" type="submit">
               <Loader2 v-if="loading" class="size-4 animate-spin" />
-              {{ mode === 'login' ? '登录' : '注册' }}
+              {{ isRegister ? '注册' : '登录' }}
             </Button>
 
-            <template v-if="oauthLogin && mode === 'login'">
+            <template v-if="oauthLogin && !isRegister">
               <div class="relative py-1 text-center text-xs text-muted-foreground">
                 <span class="relative z-10 bg-background/80 px-2">或</span>
                 <div class="absolute inset-x-0 top-1/2 h-px bg-border" />
@@ -180,16 +189,16 @@ async function submit() {
                 {{ oauthLabel }}
               </Button>
             </template>
-
-            <button
-              v-if="registerEnabled"
-              type="button"
-              class="w-full text-center text-sm text-muted-foreground hover:text-foreground"
-              @click="mode = mode === 'login' ? 'register' : 'login'"
-            >
-              {{ mode === 'login' ? '没有账号？注册' : '已有账号？登录' }}
-            </button>
           </form>
+
+          <p class="pt-4 text-center text-sm text-muted-foreground">
+            <template v-if="isRegister">
+              已有账号？<RouterLink to="/login" class="text-primary hover:underline">去登录</RouterLink>
+            </template>
+            <template v-else-if="registerEnabled">
+              没有账号？<RouterLink to="/register" class="text-primary hover:underline">注册账号</RouterLink>
+            </template>
+          </p>
         </CardContent>
       </Card>
     </div>

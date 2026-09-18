@@ -247,3 +247,32 @@ func TestTokenBrowsePathKeepsNoindex(t *testing.T) {
 		t.Fatalf("X-Robots-Tag = %q, want noindex", tag)
 	}
 }
+
+func TestAuthPagesServeSPAWhenFrontendEnabled(t *testing.T) {
+	router := newTestRouter(t, `
+[server]
+enableFrontend = true
+`)
+
+	for _, path := range []string{"/login", "/register"} {
+		w := performRequest(router, http.MethodGet, path, "")
+		if w.Code != http.StatusOK {
+			t.Fatalf("%s status = %d, want 200; body=%s", path, w.Code, w.Body.String())
+		}
+		if !strings.Contains(w.Header().Get("Content-Type"), "text/html") {
+			t.Fatalf("%s content-type = %q, want text/html", path, w.Header().Get("Content-Type"))
+		}
+	}
+}
+
+func TestOldAdminLoginRouteIsGone(t *testing.T) {
+	router := newTestRouter(t, `
+[server]
+enableFrontend = false
+`)
+
+	w := performRequest(router, http.MethodGet, "/admin/login", "")
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("/admin/login status = %d, want 404; body=%s", w.Code, w.Body.String())
+	}
+}
