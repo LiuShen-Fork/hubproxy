@@ -394,8 +394,6 @@ func AuthPublicConfig(c *gin.Context) {
 		"oauth_redirect_url":     redirectURL,
 		"features": gin.H{
 			"docker_hub":    features.DockerHub,
-			"github":        features.GitHub,
-			"huggingface":   features.HuggingFace,
 			"image_search":  features.ImageSearch,
 			"offline_image": features.OfflineImage,
 			"public_mirror": features.PublicMirror,

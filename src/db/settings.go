@@ -173,8 +173,6 @@ type PullSessionSettings struct {
 // FeatureToggles controls each acceleration path.
 type FeatureToggles struct {
 	DockerHub    bool `json:"docker_hub"`
-	GitHub       bool `json:"github"`
-	HuggingFace  bool `json:"huggingface"`
 	ImageSearch  bool `json:"image_search"`
 	OfflineImage bool `json:"offline_image"`
 	// PublicMirror: when true, allow docker pull without user token path
@@ -221,8 +219,6 @@ func SetSetting(key string, value any) error {
 func DefaultFeatureToggles() FeatureToggles {
 	return FeatureToggles{
 		DockerHub:    true,
-		GitHub:       true,
-		HuggingFace:  true,
 		ImageSearch:  true,
 		OfflineImage: true,
 		PublicMirror: false, // 默认关闭公共镜像，需令牌

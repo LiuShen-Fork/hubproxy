@@ -58,29 +58,3 @@ blackList = ["good/bad"]
 		t.Fatal("image outside whitelist allowed")
 	}
 }
-
-func TestGitHubAccessLists(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "config.toml")
-	data := []byte(`
-[access]
-whiteList = ["allowed/*"]
-blackList = ["allowed/blocked"]
-`)
-	if err := os.WriteFile(path, data, 0644); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("CONFIG_PATH", path)
-	if err := config.LoadConfig(); err != nil {
-		t.Fatal(err)
-	}
-
-	if allowed, reason := GlobalAccessController.CheckGitHubAccess([]string{"allowed", "repo"}); !allowed {
-		t.Fatalf("allowed/repo denied: %s", reason)
-	}
-	if allowed, _ := GlobalAccessController.CheckGitHubAccess([]string{"allowed", "blocked"}); allowed {
-		t.Fatal("blacklisted repo allowed")
-	}
-	if allowed, _ := GlobalAccessController.CheckGitHubAccess([]string{"other", "repo"}); allowed {
-		t.Fatal("repo outside whitelist allowed")
-	}
-}

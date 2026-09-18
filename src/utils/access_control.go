@@ -121,25 +121,6 @@ func (ac *AccessController) CheckDockerAccess(image string) (allowed bool, reaso
 	return true, ""
 }
 
-// CheckGitHubAccess 检查GitHub仓库访问权限
-func (ac *AccessController) CheckGitHubAccess(matches []string) (allowed bool, reason string) {
-	if len(matches) < 2 {
-		return false, "无效的GitHub仓库格式"
-	}
-
-	white, black := ac.getLists()
-
-	if len(white) > 0 && !ac.checkList(matches, white) {
-		return false, "不在GitHub仓库白名单内"
-	}
-
-	if len(black) > 0 && ac.checkList(matches, black) {
-		return false, "GitHub仓库在黑名单内"
-	}
-
-	return true, ""
-}
-
 // matchImageInList 检查Docker镜像是否在指定列表中
 func (ac *AccessController) matchImageInList(imageInfo DockerImageInfo, list []string) bool {
 	fullName := strings.ToLower(imageInfo.FullName)
