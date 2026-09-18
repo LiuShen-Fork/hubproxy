@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { RouterLink, useRoute } from 'vue-router'
-import { Container, ExternalLink, Github, Menu, Rocket, Search, X, Zap } from 'lucide-vue-next'
+import { ExternalLink, Github, Menu, Rocket, Search, X, Zap } from 'lucide-vue-next'
 import Button from '@/components/ui/Button.vue'
 import ThemeToggle from '@/components/ThemeToggle.vue'
 import { site } from '@/lib/site'
@@ -13,7 +13,6 @@ const menuOpen = ref(false)
 
 const links = [
   { to: '/', label: '镜像加速', icon: Rocket },
-  { to: '/images', label: '离线镜像', icon: Container },
   { to: '/search', label: '镜像搜索', icon: Search },
   { to: '/admin', label: '管理后台', icon: Zap },
 ] as const

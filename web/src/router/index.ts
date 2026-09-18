@@ -1,6 +1,5 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import HomePage from '@/pages/HomePage.vue'
-import ImagesPage from '@/pages/ImagesPage.vue'
 import SearchPage from '@/pages/SearchPage.vue'
 import AdminLayout from '@/admin/AdminLayout.vue'
 import LoginPage from '@/admin/pages/LoginPage.vue'
@@ -27,11 +26,6 @@ const router = createRouter({
       path: '/',
       component: HomePage,
       meta: { title: '镜像加速' },
-    },
-    {
-      path: '/images',
-      component: ImagesPage,
-      meta: { title: '离线镜像下载' },
     },
     {
       path: '/search',

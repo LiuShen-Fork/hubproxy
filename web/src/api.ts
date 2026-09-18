@@ -39,14 +39,6 @@ async function getJSON<T>(url: string, init?: RequestInit): Promise<T> {
   return (await res.json()) as T
 }
 
-export interface PrepareDownloadResponse {
-  download_url: string
-}
-
-export interface ImageInfoResponse {
-  success: boolean
-}
-
 export interface Repository {
   repo_name?: string
   short_description?: string
@@ -78,36 +70,6 @@ export interface TagPageResult {
   has_more: boolean
 }
 
-export function prepareSingleDownload(params: {
-  image: string
-  platform?: string
-  compressed: boolean
-}) {
-  const q = new URLSearchParams()
-  q.set('image', params.image)
-  q.set('mode', 'prepare')
-  q.set('compressed', String(params.compressed))
-  if (params.platform?.trim()) q.set('platform', params.platform.trim())
-  return getJSON<PrepareDownloadResponse>(`/api/image/download?${q}`)
-}
-
-export function fetchImageInfo(image: string) {
-  const q = new URLSearchParams({ image })
-  return getJSON<ImageInfoResponse>(`/api/image/info?${q}`)
-}
-
-export function prepareBatchDownload(body: {
-  images: string[]
-  platform?: string
-  useCompressedLayers: boolean
-}) {
-  return getJSON<PrepareDownloadResponse>('/api/image/batch?mode=prepare', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  })
-}
-
 export function searchImages(q: string, page: number, pageSize = 25) {
   const params = new URLSearchParams({
     q,
@@ -125,13 +87,4 @@ export function fetchTags(namespace: string, name: string, page: number, pageSiz
   return getJSON<TagPageResult>(
     `/api/tags/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}?${params}`,
   )
-}
-
-export function triggerDownload(url: string) {
-  const link = document.createElement('a')
-  link.href = url
-  link.style.display = 'none'
-  document.body.appendChild(link)
-  link.click()
-  document.body.removeChild(link)
 }
