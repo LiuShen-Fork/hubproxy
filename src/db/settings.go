@@ -108,7 +108,7 @@ func DefaultSiteSettings() SiteSettings {
 		Name:         "镜像加速",
 		FullName:     "自建多源镜像",
 		Tagline:      "",
-		Description:  "多源镜像加速服务，支持 Docker、GitHub、Hugging Face。",
+		Description:  "多源镜像加速服务，支持 Docker Hub、GHCR、GCR、Quay 等 Registry。",
 		ICPText:      "",
 		PoliceText:   "",
 		Announcement: "",

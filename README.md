@@ -6,7 +6,7 @@
 
 <p align="center">
   基于 <a href="https://github.com/sky22333/hubproxy">sky22333/hubproxy</a> 二次开发的增强版<br/>
-  在保留原版 Docker / GitHub / Hugging Face 加速能力的基础上，增加完整管理后台、多用户令牌体系、拉取统计与安全策略。
+  在保留原版 Docker 镜像加速能力的基础上，增加完整管理后台、多用户令牌体系、拉取统计与安全策略。
 </p>
 
 <p align="center">
@@ -25,7 +25,7 @@
 | **本分支** | [LiuShen-Fork/hubproxy](https://github.com/LiuShen-Fork/hubproxy) |
 | **定位** | 原版能力 + 可运营的多用户后台增强 |
 
-本项目**继承原版**的代理核心（Registry API v2、GitHub/HF 加速、离线打包、镜像搜索等），并面向**自用 / 小团队内部分发**场景，补齐账号体系、访问令牌、配额统计与站点可配置能力。
+本项目**继承原版**的代理核心（Registry API v2、离线打包、镜像搜索等），并面向**自用 / 小团队内部分发**场景，补齐账号体系、访问令牌、配额统计与站点可配置能力。
 
 > 感谢原作者 [sky22333](https://github.com/sky22333) 的开源工作。若你只需要轻量单机加速、不需要多用户后台，可直接使用原版。
 
@@ -38,7 +38,7 @@
 - 管理员 / 普通用户双控制台（侧栏可切换）
 - 数据大屏：拉取次数、流量、独立 IP、趋势与 Top 列表
 - 拉取记录 / 镜像统计 / IP 分析（筛选、分页、限高表格）
-- 功能开关：Docker Hub、GitHub、HF、搜索、离线包、公共镜像
+- 功能开关：Docker Hub、镜像搜索、离线包、公共镜像
 - 安全限流：全局限流、IP 黑白名单、仓库访问控制
 - 系统设置：站点名称、备案、公告、OAuth2、SMTP
 
@@ -80,8 +80,6 @@
 
 - Docker 镜像加速（Registry API v2，流式传输，Manifest / Token 缓存）
 - 多 Registry：Docker Hub、ghcr.io、gcr.io、quay.io、registry.k8s.io、registry.gitlab.com
-- GitHub 文件 / Release / Clone / API 加速
-- Hugging Face 模型与 LFS 加速
 - 离线镜像 tar 打包下载
 - 镜像搜索（Web + API）
 - 统一 `config.toml` + 环境变量
@@ -172,16 +170,6 @@ docker pull nginx:latest
 ```
 
 > 请勿在浏览器中打开 `/TOKEN` 路径；该路径仅用于 Docker 客户端，网页访问会返回 404。
-
-### GitHub / Hugging Face
-
-```bash
-# Release
-wget "https://yourdomain.com/https://github.com/owner/repo/releases/download/v1.0.0/app.tar.gz"
-
-# Git clone
-git clone https://yourdomain.com/https://github.com/owner/repo.git
-```
 
 ---
 

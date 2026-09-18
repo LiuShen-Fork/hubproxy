@@ -210,7 +210,7 @@ onMounted(async () => {
             ，或在 daemon.json 配置
             <code class="rounded bg-muted px-1">registry-mirrors: ["https://域名/令牌"]</code>
             后直接 <code class="rounded bg-muted px-1">docker pull nginx</code>。仅支持匿名公开镜像。
-            <span v-if="requireToken">当前公共加速关闭，主页会优先使用本地保存的访问令牌生成链接。</span>
+            <span v-if="requireToken">当前公共加速关闭，下方示例已使用本地保存的访问令牌生成拉取命令。</span>
           </p>
         </div>
       </div>
