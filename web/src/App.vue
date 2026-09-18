@@ -13,7 +13,11 @@ const isBare = computed(() => route.meta.bare === true)
 <template>
   <ToastHost />
   <AnnouncementModal />
-  <RouterView v-if="isBare" />
+  <RouterView v-if="isBare" v-slot="{ Component, route: r }">
+    <!-- /login 与 /register 共用 AuthPage，按 path 加 key 强制重挂载，
+         否则组件实例被复用、只更新 props，登录失败的 error 会残留在注册表单里 -->
+    <component :is="Component" :key="r.path" />
+  </RouterView>
   <AppShell v-else>
     <RouterView v-slot="{ Component, route: r }">
       <Transition name="page">

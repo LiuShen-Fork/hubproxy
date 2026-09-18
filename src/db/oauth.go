@@ -137,12 +137,12 @@ func CreateOAuthUser(preferredUsername, email string) (*User, error) {
 		}
 	}
 
-	// random password; user is forced to replace it on first sign-in
+	// 随机密码；用户首次登录时必须自行替换
 	raw, err := GenerateToken()
 	if err != nil {
 		return nil, err
 	}
-	// use first 16 of hex as password
+	// 取十六进制串的前 24 位作为密码
 	pwd := raw
 	if len(pwd) > 24 {
 		pwd = pwd[:24]
@@ -153,6 +153,10 @@ func CreateOAuthUser(preferredUsername, email string) (*User, error) {
 	}
 	// oauth 建号时密码是随机生成的，用户并不知道。必须强制其走一次改密，
 	// 否则该账号永远无法用用户名密码登录。
-	_, _ = DB.Exec(`UPDATE users SET must_change_password = 1 WHERE id = ?`, u.ID)
+	// 写失败必须整体返回错误：否则账号创建"成功"，但 must_change_password
+	// 仍为 0，用户会被静默放进控制台，本次安全修复形同失效。
+	if _, err := DB.Exec(`UPDATE users SET must_change_password = 1 WHERE id = ?`, u.ID); err != nil {
+		return nil, err
+	}
 	return GetUserByID(u.ID)
 }
