@@ -5,8 +5,13 @@ on:
   pull_request:
 
 jobs:
-  check:
-    runs-on: ubuntu-latest
+  # 拆成两个 job 是为了在 Actions 概览页上一眼看到进行到哪一阶段：
+  # 一个 job 只会显示成一个方块，步骤要展开才看得到。
+  frontend:
+    name: 前端构建
+    # 固定在 24.04 而不是 ubuntu-latest：GitHub 公告 ubuntu-latest 将于
+    # 2026-10-19 起迁移到 Ubuntu 26，固定版本可避免那次迁移带来的意外变化。
+    runs-on: ubuntu-24.04
     steps:
       - name: 检出代码
         uses: actions/checkout@v6
@@ -14,11 +19,9 @@ jobs:
       # Go 主包用 //go:embed all:dist 内嵌前端产物，而 src/dist/ 被 .gitignore 排除。
       # 全新检出时该目录不存在，go build 会直接失败：
       #   pattern all:dist: no matching files found
-      # 所以必须先构建前端——这也与 Dockerfile 的阶段顺序一致。
-      #
-      # 缓存 src/dist：key 由 web/ 下全部文件哈希而成，前端源码没变时直接恢复产物、
-      # 完全跳过 npm 安装与构建，这次运行就只剩 Go 检查。
-      - name: 缓存前端产物
+      # 所以 Go 检查必须等前端构建完。key 由 web/ 下全部文件哈希而成，前端源码
+      # 没变时命中缓存，npm 安装与构建整段跳过。
+      - name: 恢复前端产物
         id: dist-cache
         uses: actions/cache@v5
         with:
@@ -27,7 +30,7 @@ jobs:
 
       - name: 配置 Node
         if: steps.dist-cache.outputs.cache-hit != 'true'
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: '24'
           cache: npm
@@ -40,6 +43,43 @@ jobs:
 
       # npm run build = vue-tsc -b && vite build，类型检查包含在内。
       # 前端源码未变时不会走到这里，所以类型检查恰好只在可能引入类型错误的那次运行生效。
+      - name: 构建前端
+        if: steps.dist-cache.outputs.cache-hit != 'true'
+        working-directory: web
+        run: npm run build
+
+  backend:
+    name: 后端检查
+    needs: frontend
+    runs-on: ubuntu-24.04
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v6
+
+      # 这里同样用缓存而不是 upload/download-artifact 传递产物：本文件无法在本地
+      # 验证 artifact 对「指定目录」的路径语义（根目录放内容还是放目录本身），
+      # 一旦理解错，后端会以一条难懂的 embed 报错失败。缓存是同一个 key，
+      # 前端 job 刚写入，这里必定命中；万一没命中，下面的条件步骤会自己补建。
+      - name: 恢复前端产物
+        id: dist-cache
+        uses: actions/cache@v5
+        with:
+          path: src/dist
+          key: dist-${{ hashFiles('web/**') }}
+
+      - name: 配置 Node
+        if: steps.dist-cache.outputs.cache-hit != 'true'
+        uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: 安装前端依赖
+        if: steps.dist-cache.outputs.cache-hit != 'true'
+        working-directory: web
+        run: npm ci
+
       - name: 构建前端
         if: steps.dist-cache.outputs.cache-hit != 'true'
         working-directory: web
