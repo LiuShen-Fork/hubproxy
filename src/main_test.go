@@ -11,6 +11,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"hubproxy/config"
+	"hubproxy/db"
 	"hubproxy/handlers"
 	"hubproxy/utils"
 )
@@ -28,6 +29,19 @@ func newTestRouter(t *testing.T, configBody string) *gin.Engine {
 		t.Fatal(err)
 	}
 
+	// 复刻生产启动链路（main() 的 db.Init → db.SeedFromConfig），这一步才会填充
+	// GlobalRuntime。跳过它 GlobalRuntime 就是零值结构体：所有功能开关为 false
+	// （离线下载、公共镜像闸门会把请求 403 掉）、Registry 列表为空。
+	//
+	// 用 :memory: 而不是 t.TempDir()：db.Init 受 sync.Once 保护只有首次调用生效，
+	// 而 t.TempDir() 会在首个测试结束时就删掉，后续测试会指向一个已消失的文件。
+	if err := db.Init(":memory:"); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.SeedFromConfig(config.GetConfig()); err != nil {
+		t.Fatal(err)
+	}
+
 	utils.InitHTTPClients()
 	globalLimiter = utils.InitGlobalLimiter()
 	handlers.InitDockerProxy()
@@ -35,6 +49,18 @@ func newTestRouter(t *testing.T, configBody string) *gin.Engine {
 	handlers.InitDebouncer()
 
 	return buildRouter(config.GetConfig())
+}
+
+// setPublicMirror 切换公共镜像开关。功能闸门是每请求求值的（不是构建路由时快照的），
+// 所以在 newTestRouter 之后调用同样生效。
+func setPublicMirror(t *testing.T, enabled bool) {
+	t.Helper()
+	features := db.DefaultFeatureToggles()
+	features.PublicMirror = enabled
+	if err := db.SetSetting(db.KeyFeatures, features); err != nil {
+		t.Fatal(err)
+	}
+	db.GlobalRuntime.Reload()
 }
 
 func performRequest(router http.Handler, method, path, body string) *httptest.ResponseRecorder {
@@ -60,7 +86,8 @@ func TestReadyRoute(t *testing.T) {
 	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
 		t.Fatal(err)
 	}
-	if got["ready"] != true || got["service"] != "hubproxy" {
+	// service 是健康检查的信息性字段，fork 后品牌更名为「清羽镜像」。
+	if got["ready"] != true || got["service"] != "qingyu-mirror" {
 		t.Fatalf("unexpected ready response: %#v", got)
 	}
 }
@@ -136,6 +163,11 @@ maxImages = 1
 
 func TestDockerV2PingAndInvalidPath(t *testing.T) {
 	router := newTestRouter(t, "")
+
+	// 本用例验的是路径解析与校验（400）。默认 public_mirror=false 时，匿名请求会先被
+	// 「公共镜像已关闭」闸门拦成 403，永远走不到路径校验那一步。这里显式打开闸门，
+	// 让断言真正覆盖它要覆盖的逻辑；产品的默认值不受影响。
+	setPublicMirror(t, true)
 
 	w := performRequest(router, http.MethodGet, "/v2/", "")
 	if w.Code != http.StatusOK {
