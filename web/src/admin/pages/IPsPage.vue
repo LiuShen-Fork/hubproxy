@@ -27,7 +27,12 @@ const dateRange = ref<{ preset: DateRangePreset; from: string; to: string }>({
 const { isAdmin } = useAuth()
 const router = useRouter()
 
+// 请求序号：search() 里 page 的赋值会连带触发 watch，同一次操作可能发出两个请求，
+// 且用户连续改筛选条件时新旧请求会并行。只有最后一次发出的请求才有权写入结果。
+let seq = 0
+
 async function load() {
+  const mine = ++seq
   loading.value = true
   try {
     const range = presetRange(dateRange.value.preset)
@@ -38,10 +43,13 @@ async function load() {
       from: dateRange.value.preset === 'custom' ? dateRange.value.from : range.from,
       to: dateRange.value.preset === 'custom' ? dateRange.value.to : range.to,
     })
+    // 丢弃过期响应，避免慢的旧筛选结果覆盖新筛选结果
+    if (mine !== seq) return
     items.value = res.items
     total.value = res.total
   } finally {
-    loading.value = false
+    // 同样只有最新请求能关掉加载态，否则旧响应会把新请求的「加载中」提前抹掉
+    if (mine === seq) loading.value = false
   }
 }
 
