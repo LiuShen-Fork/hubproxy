@@ -1027,6 +1027,32 @@ func attachUsersToIPStats(list []IPStat, from, to string) error {
 	return nil
 }
 
+// ListDistinctRegistries 返回 pull_sessions 里出现过的全部来源（去重、排序、剔除空串）。
+// 来源下拉必须取自实际数据而不是配置里的 registry 列表：配置会在运行时被改，
+// 而历史行可能属于已被移除的来源（见 removedRegistryDomains）——那些行仍然留在表里，
+// 只按配置取值会让它们再也筛不出来。
+func ListDistinctRegistries() ([]string, error) {
+	// 非 nil 空切片：调用方序列化后必须是 []，而不是 null。
+	out := []string{}
+	rows, err := DB.Query(
+		`SELECT DISTINCT registry FROM pull_sessions
+		 WHERE registry IS NOT NULL AND registry <> ''
+		 ORDER BY registry`,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var registry string
+		if err := rows.Scan(&registry); err != nil {
+			return nil, err
+		}
+		out = append(out, registry)
+	}
+	return out, rows.Err()
+}
+
 // SuggestIPs 返回以 prefix 开头的 IP，供前端自动补全使用。
 // 前缀为空时返回空数组——否则一次空输入就会把整张表的 IP 倒给前端。
 func SuggestIPs(prefix string, limit int) ([]string, error) {

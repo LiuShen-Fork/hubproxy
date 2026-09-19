@@ -21,16 +21,12 @@ import {
   type User,
 } from '../api'
 
-// 来源与类型是两个不同维度：registry 是仓库来源，category 是镜像归属
-const registryOptions = [
+// 来源与类型是两个不同维度：registry 是仓库来源，category 是镜像归属。
+// 类型固定只有 library/user 两种（见后端 ImageCategory），所以写死；
+// 来源是动态的：配置可在运行时改，且历史行可能属于配置里已移除的来源，因此取自数据。
+const registryOptions = ref<{ value: string; label: string }[]>([
   { value: '', label: '全部来源' },
-  { value: 'docker.io', label: 'docker.io' },
-  { value: 'ghcr.io', label: 'ghcr.io' },
-  { value: 'gcr.io', label: 'gcr.io' },
-  { value: 'quay.io', label: 'quay.io' },
-  { value: 'registry.k8s.io', label: 'registry.k8s.io' },
-  { value: 'registry.gitlab.com', label: 'registry.gitlab.com' },
-]
+])
 const categoryOptions = [
   { value: '', label: '全部类型' },
   { value: 'library', label: 'library' },
@@ -66,6 +62,18 @@ async function loadUsers() {
     }))
   } catch {
     // 拉不到用户列表时筛选框为空，表格仍可用（只是没有名字可显示）
+  }
+}
+
+async function loadRegistries() {
+  try {
+    const res = await adminApi.registries()
+    registryOptions.value = [
+      { value: '', label: '全部来源' },
+      ...res.items.map((r: string) => ({ value: r, label: r })),
+    ]
+  } catch {
+    // 拉不到来源列表时只剩「全部来源」，表格仍可用（只是筛不了来源）
   }
 }
 
@@ -110,6 +118,7 @@ async function openDetail(id: string) {
 
 onMounted(() => {
   loadUsers()
+  loadRegistries()
   load()
 })
 watch(page, load)

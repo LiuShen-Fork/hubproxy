@@ -53,6 +53,7 @@ func RegisterAdminRoutes(r *gin.Engine) {
 		adminOnly.GET("/images", AdminListImages)
 		adminOnly.GET("/ips", AdminListIPs)
 		adminOnly.GET("/ips/suggest", AdminSuggestIPs)
+		adminOnly.GET("/registries", AdminListRegistries)
 
 		adminOnly.GET("/users", AdminListUsers)
 		adminOnly.POST("/users", AdminCreateUser)
@@ -149,6 +150,17 @@ func AdminListIPs(c *gin.Context) {
 // AdminSuggestIPs 供筛选框的自动补全使用。只回前缀匹配的少量 IP。
 func AdminSuggestIPs(c *gin.Context) {
 	items, err := db.SuggestIPs(c.Query("prefix"), 10)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"items": items})
+}
+
+// AdminListRegistries 供筛选框的「来源」下拉使用。
+// 取值来自 pull_sessions 的实际数据，因此包含配置里已经移除但历史行仍在的来源。
+func AdminListRegistries(c *gin.Context) {
+	items, err := db.ListDistinctRegistries()
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return

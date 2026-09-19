@@ -285,6 +285,8 @@ export const adminApi = {
     request<{ items: IPStat[]; total: number }>(`/ips?${buildQuery(q)}`),
   ipsSuggest: (prefix: string) =>
     request<{ items: string[] }>(`/ips/suggest?${buildQuery({ prefix })}`),
+  /** 来源下拉的取值：来自实际数据，含配置里已移除但历史行仍在的来源 */
+  registries: () => request<{ items: string[] }>('/registries'),
   users: () => request<{ items: User[] }>('/users'),
   createUser: (body: { username: string; password: string; role?: string }) =>
     request<{ user: User }>('/users', { method: 'POST', body: JSON.stringify(body) }),
