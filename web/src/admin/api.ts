@@ -46,6 +46,24 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   return data as T
 }
 
+/** 数组值会重复 append 同名参数（?user_id=2&user_id=5），后端用 QueryArray 读取。 */
+export type QueryValue = string | number | undefined | Array<string | number>
+
+export function buildQuery(q: Record<string, QueryValue>): string {
+  const sp = new URLSearchParams()
+  Object.entries(q).forEach(([k, v]) => {
+    if (v === undefined || v === '') return
+    if (Array.isArray(v)) {
+      v.forEach((item) => {
+        if (item !== undefined && item !== '') sp.append(k, String(item))
+      })
+      return
+    }
+    sp.set(k, String(v))
+  })
+  return sp.toString()
+}
+
 export interface User {
   id: number
   username: string
@@ -79,6 +97,7 @@ export interface PullSession {
   bytes_total: number
   layer_count: number
   request_count: number
+  username: string
 }
 
 export interface DashboardStats {
@@ -104,6 +123,24 @@ export interface DashboardStats {
   category_stats: Array<{ category: string; pull_count: number; bytes_total: number }>
   daily_trend: Array<{ day: string; pull_count: number; bytes_total: number }>
   recent_pulls: PullSession[]
+}
+
+export interface IPStat {
+  client_ip: string
+  pull_count: number
+  bytes_total: number
+  last_seen: string
+  /** 该 IP 关联过的用户名；同一 IP 出现多个即值得注意 */
+  users: string[]
+}
+
+export interface ImageStat {
+  image_name: string
+  registry: string
+  category: string
+  pull_count: number
+  bytes_total: number
+  unique_ips: number
 }
 
 export interface FeatureToggles {
@@ -231,31 +268,18 @@ export const adminApi = {
       body: JSON.stringify({ username, password, email, code }),
     }),
   dashboard: (days = 14) => request<DashboardStats>(`/dashboard?days=${days}`),
-  pulls: (q: Record<string, string | number | undefined>) => {
-    const sp = new URLSearchParams()
-    Object.entries(q).forEach(([k, v]) => {
-      if (v !== undefined && v !== '') sp.set(k, String(v))
-    })
-    return request<{ items: PullSession[]; total: number; page: number; page_size: number }>(
-      `/pulls?${sp}`,
-    )
-  },
+  pulls: (q: Record<string, QueryValue>) =>
+    request<{ items: PullSession[]; total: number; page: number; page_size: number }>(
+      `/pulls?${buildQuery(q)}`,
+    ),
   pull: (id: string) =>
     request<{ session: PullSession; events: any[] }>(`/pulls/${id}`),
-  images: (q: Record<string, string | number | undefined>) => {
-    const sp = new URLSearchParams()
-    Object.entries(q).forEach(([k, v]) => {
-      if (v !== undefined && v !== '') sp.set(k, String(v))
-    })
-    return request<{ items: any[]; total: number }>(`/images?${sp}`)
-  },
-  ips: (q: Record<string, string | number | undefined>) => {
-    const sp = new URLSearchParams()
-    Object.entries(q).forEach(([k, v]) => {
-      if (v !== undefined && v !== '') sp.set(k, String(v))
-    })
-    return request<{ items: any[]; total: number }>(`/ips?${sp}`)
-  },
+  images: (q: Record<string, QueryValue>) =>
+    request<{ items: ImageStat[]; total: number }>(`/images?${buildQuery(q)}`),
+  ips: (q: Record<string, QueryValue>) =>
+    request<{ items: IPStat[]; total: number }>(`/ips?${buildQuery(q)}`),
+  ipsSuggest: (prefix: string) =>
+    request<{ items: string[] }>(`/ips/suggest?${buildQuery({ prefix })}`),
   users: () => request<{ items: User[] }>('/users'),
   createUser: (body: { username: string; password: string; role?: string }) =>
     request<{ user: User }>('/users', { method: 'POST', body: JSON.stringify(body) }),
