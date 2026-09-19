@@ -16,7 +16,11 @@ const isDark = ref(false)
 const menuOpen = ref(false)
 
 const { user, bootstrap } = useAuth()
-const registerEnabled = ref(false)
+// 注册由两条独立通道提供：表单注册与 OAuth2 注册。任一条开启，导航就该有入口，
+// 否则「只开 OAuth 注册」的站点会连注册页都进不去。
+const formRegisterEnabled = ref(false)
+const oauthRegisterEnabled = ref(false)
+const canRegister = computed(() => formRegisterEnabled.value || oauthRegisterEnabled.value)
 
 const navLinks = computed<NavLink[]>(() => {
   const links: NavLink[] = [
@@ -28,8 +32,8 @@ const navLinks = computed<NavLink[]>(() => {
     return links
   }
   links.push({ to: '/login', label: '登录账号', icon: LogIn })
-  // 注册关闭时不给入口，避免点进一个必然被拒的页面
-  if (registerEnabled.value) {
+  // 两条注册通道都关闭时才不给入口，避免点进一个必然被拒的页面
+  if (canRegister.value) {
     links.push({ to: '/register', label: '注册账号', icon: UserPlus })
   }
   return links
@@ -65,7 +69,8 @@ onMounted(async () => {
   await bootstrap()
   try {
     const cfg = await adminApi.publicConfig()
-    registerEnabled.value = !!(cfg.form_register_enabled ?? cfg.register_enabled)
+    formRegisterEnabled.value = !!(cfg.form_register_enabled ?? cfg.register_enabled)
+    oauthRegisterEnabled.value = !!(cfg.oauth_register_enabled && cfg.oauth?.enabled)
   } catch {
     /* 拉取失败时按未开启注册处理 */
   }

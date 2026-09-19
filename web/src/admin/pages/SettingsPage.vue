@@ -45,7 +45,7 @@ async function load() {
       token_url: '',
       user_info_url: '',
       scopes: 'openid profile email',
-      display_name: 'OAuth2 登录',
+      display_name: '第三方账号',
     } as any
   }
   if (!s.email) {
@@ -262,7 +262,10 @@ onMounted(async () => {
         <div class="grid gap-3 sm:grid-cols-2">
           <div class="space-y-2">
             <Label>按钮名称</Label>
-            <Input v-model="settings.oauth.display_name" placeholder="OAuth2 登录" />
+            <Input v-model="settings.oauth.display_name" placeholder="第三方账号" />
+            <p class="text-xs text-muted-foreground">
+              填服务商名即可（如 GitHub），按钮会显示为「使用 GitHub 登录 / 注册」。
+            </p>
           </div>
           <div class="space-y-2">
             <Label>Scopes</Label>

@@ -29,9 +29,25 @@ const sending = ref(false)
 const registerEnabled = ref(false)
 const emailRegister = ref(false)
 const oauthLogin = ref(false)
-const oauthLabel = ref('OAuth2 登录')
+const oauthRegister = ref(false)
+const oauthName = ref('第三方账号')
 
 const isRegister = computed(() => props.mode === 'register')
+
+// 「注册」由两条独立通道提供：表单注册与 OAuth2 注册。只要有一条开启，
+// 注册页就该可用、顶部导航里也该有入口。
+const canRegister = computed(() => registerEnabled.value || oauthRegister.value)
+
+// 注册页按通道分别渲染：表单只认表单开关，OAuth 按钮在登录页看登录开关、
+// 在注册页看注册开关。两者都开才画中间那条「或」。
+const showForm = computed(() => !isRegister.value || registerEnabled.value)
+const showOAuth = computed(() => (isRegister.value ? oauthRegister.value : oauthLogin.value))
+const showDivider = computed(() => showForm.value && showOAuth.value)
+const closedNotice = computed(() => isRegister.value && !canRegister.value)
+
+const oauthButtonLabel = computed(
+  () => `使用 ${oauthName.value} ${isRegister.value ? '注册' : '登录'}`,
+)
 
 onMounted(async () => {
   const qErr = route.query.oauth_error
@@ -44,15 +60,18 @@ onMounted(async () => {
     registerEnabled.value = !!(cfg.form_register_enabled ?? cfg.register_enabled)
     emailRegister.value = !!cfg.email_register_enabled
     oauthLogin.value = !!(cfg.oauth_login_enabled && cfg.oauth?.enabled)
-    if (cfg.oauth?.display_name) oauthLabel.value = cfg.oauth.display_name
+    oauthRegister.value = !!(cfg.oauth_register_enabled && cfg.oauth?.enabled)
+    if (cfg.oauth?.display_name) oauthName.value = cfg.oauth.display_name
     if (cfg.site) applySiteFromApi(cfg.site)
   } catch {
     /* ignore */
   }
 })
 
-function startOAuth() {
-  window.location.href = '/api/admin/oauth/start?mode=login'
+function startOAuth(mode: 'login' | 'register') {
+  // 后端目前把「注册」也走同一条流程——回调里按 OAuthRegisterEnabled 决定
+  // 是否自动建号。显式传 mode 是为了日后后端真要区分两种模式时不必再改前端。
+  window.location.href = `/api/admin/oauth/start?mode=${mode}`
 }
 
 async function sendCode() {
@@ -138,12 +157,17 @@ async function submit() {
         </CardHeader>
         <CardContent class="pt-2">
           <p
-            v-if="isRegister && !registerEnabled"
+            v-if="closedNotice"
             class="rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive"
           >
             当前站点已关闭注册，请联系管理员开通账号。
           </p>
-          <form v-else class="space-y-4" @submit.prevent="submit">
+
+          <!-- 错误提示放在表单外：只开 OAuth 注册时没有表单，OAuth 失败的原因
+               也必须能显示出来 -->
+          <p v-if="error" class="mb-4 rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">{{ error }}</p>
+
+          <form v-if="showForm" class="space-y-4" @submit.prevent="submit">
             <div class="space-y-2">
               <Label for="username">用户名</Label>
               <Input id="username" v-model="username" autocomplete="username" placeholder="请输入用户名" required />
@@ -174,28 +198,33 @@ async function submit() {
                 </div>
               </div>
             </template>
-            <p v-if="error" class="rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">{{ error }}</p>
             <Button class="h-11 w-full rounded-xl" :disabled="loading" type="submit">
               <Loader2 v-if="loading" class="size-4 animate-spin" />
               {{ isRegister ? '注册' : '登录' }}
             </Button>
-
-            <template v-if="oauthLogin && !isRegister">
-              <div class="relative py-1 text-center text-xs text-muted-foreground">
-                <span class="relative z-10 bg-background/80 px-2">或</span>
-                <div class="absolute inset-x-0 top-1/2 h-px bg-border" />
-              </div>
-              <Button type="button" variant="outline" class="h-11 w-full rounded-xl" @click="startOAuth">
-                {{ oauthLabel }}
-              </Button>
-            </template>
           </form>
+
+          <!-- OAuth 按钮放在表单外：只开 OAuth 注册时表单整块不渲染，按钮仍需存在 -->
+          <div v-if="showOAuth" class="mt-4">
+            <div v-if="showDivider" class="relative pb-3 text-center text-xs text-muted-foreground">
+              <span class="relative z-10 bg-background/80 px-2">或</span>
+              <div class="absolute inset-x-0 top-1/2 h-px bg-border" />
+            </div>
+            <Button
+              type="button"
+              variant="outline"
+              class="h-11 w-full rounded-xl"
+              @click="startOAuth(isRegister ? 'register' : 'login')"
+            >
+              {{ oauthButtonLabel }}
+            </Button>
+          </div>
 
           <p class="pt-4 text-center text-sm text-muted-foreground">
             <template v-if="isRegister">
               已有账号？<RouterLink to="/login" class="text-primary hover:underline">去登录</RouterLink>
             </template>
-            <template v-else-if="registerEnabled">
+            <template v-else-if="canRegister">
               没有账号？<RouterLink to="/register" class="text-primary hover:underline">注册账号</RouterLink>
             </template>
           </p>
