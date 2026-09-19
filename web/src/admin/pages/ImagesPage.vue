@@ -7,9 +7,10 @@ import DateRange from '@/components/ui/DateRange.vue'
 import Card from '@/components/ui/Card.vue'
 import CardContent from '@/components/ui/CardContent.vue'
 import Badge from '@/components/ui/Badge.vue'
+import Label from '@/components/ui/Label.vue'
 import DataTable from '@/components/ui/DataTable.vue'
 import { presetRange, type DateRangePreset } from '@/lib/dateRange'
-import { adminApi, formatBytes, type ImageStat } from '../api'
+import { adminApi, categoryLabel, formatBytes, type ImageStat } from '../api'
 
 // 来源与类型是两个不同维度：registry 是仓库来源，category 是镜像归属。
 // 类型固定只有 library/user 两种（见后端 ImageCategory），所以写死；
@@ -19,8 +20,8 @@ const registryOptions = ref<{ value: string; label: string }[]>([
 ])
 const categoryOptions = [
   { value: '', label: '全部类型' },
-  { value: 'library', label: 'library' },
-  { value: 'user', label: 'user' },
+  { value: 'library', label: '官方库镜像' },
+  { value: 'user', label: '用户镜像' },
 ]
 
 const items = ref<ImageStat[]>([])
@@ -93,10 +94,21 @@ watch(page, load)
   <div class="space-y-4">
     <Card>
       <CardContent class="grid gap-3 pt-5 md:grid-cols-4">
-        <Input v-model="image" placeholder="镜像名称" />
-        <Select v-model="registry" :options="registryOptions" />
-        <Select v-model="category" :options="categoryOptions" />
-        <Button class="rounded-xl" @click="search">查询</Button>
+        <div class="space-y-1.5">
+          <Label>镜像名称</Label>
+          <Input v-model="image" placeholder="按镜像名筛选" />
+        </div>
+        <div class="space-y-1.5">
+          <Label>来源（registry）</Label>
+          <Select v-model="registry" :options="registryOptions" />
+        </div>
+        <div class="space-y-1.5">
+          <Label>类型</Label>
+          <Select v-model="category" :options="categoryOptions" />
+        </div>
+        <div class="flex items-end">
+          <Button class="rounded-xl" @click="search">查询</Button>
+        </div>
         <DateRange v-model="dateRange" class="md:col-span-4" @update:model-value="search" />
       </CardContent>
     </Card>
@@ -127,7 +139,7 @@ watch(page, load)
           >
             <td class="max-w-[12rem] truncate px-3 py-2.5 font-medium" :title="it.image_name">{{ it.image_name }}</td>
             <td class="max-w-[10rem] truncate px-3 py-2.5" :title="it.registry">{{ it.registry }}</td>
-            <td class="px-3 py-2.5 whitespace-nowrap"><Badge variant="secondary">{{ it.category }}</Badge></td>
+            <td class="px-3 py-2.5 whitespace-nowrap"><Badge variant="secondary">{{ categoryLabel(it.category) }}</Badge></td>
             <td class="px-3 py-2.5 whitespace-nowrap text-right tabular-nums">{{ it.pull_count }}</td>
             <td class="px-3 py-2.5 whitespace-nowrap text-right tabular-nums">{{ it.unique_ips }}</td>
             <td class="px-3 py-2.5 whitespace-nowrap text-right tabular-nums">{{ formatBytes(it.bytes_total) }}</td>

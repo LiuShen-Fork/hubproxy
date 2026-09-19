@@ -411,7 +411,10 @@ export function formatTime(iso?: string): string {
   return d.toLocaleString()
 }
 
+/** 把后端的 library / user 译成中文。未识别的值原样返回，空值显示 '-'。 */
 export function categoryLabel(category?: string): string {
+  if (category === 'library') return '官方库镜像'
+  if (category === 'user') return '用户镜像'
   return category || '-'
 }
 

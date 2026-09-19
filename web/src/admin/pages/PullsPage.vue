@@ -10,10 +10,12 @@ import DateRange from '@/components/ui/DateRange.vue'
 import Card from '@/components/ui/Card.vue'
 import CardContent from '@/components/ui/CardContent.vue'
 import Badge from '@/components/ui/Badge.vue'
+import Label from '@/components/ui/Label.vue'
 import DataTable from '@/components/ui/DataTable.vue'
 import { presetRange, type DateRangePreset } from '@/lib/dateRange'
 import {
   adminApi,
+  categoryLabel,
   displayPullName,
   formatBytes,
   formatTime,
@@ -29,8 +31,8 @@ const registryOptions = ref<{ value: string; label: string }[]>([
 ])
 const categoryOptions = [
   { value: '', label: '全部类型' },
-  { value: 'library', label: 'library' },
-  { value: 'user', label: 'user' },
+  { value: 'library', label: '官方库镜像' },
+  { value: 'user', label: '用户镜像' },
 ]
 
 const route = useRoute()
@@ -128,16 +130,33 @@ watch(page, load)
   <div class="space-y-4">
     <Card>
       <CardContent class="grid gap-3 pt-5 md:grid-cols-3">
-        <Autocomplete
-          v-model="ip"
-          :fetch="(q) => adminApi.ipsSuggest(q).then((r) => r.items)"
-          placeholder="按 IP 筛选（输入前几位会有建议）"
-        />
-        <Input v-model="image" placeholder="按镜像名称筛选" />
-        <MultiSelect v-model="userIds" :options="userOptions" placeholder="全部用户" />
-        <Select v-model="registry" :options="registryOptions" />
-        <Select v-model="category" :options="categoryOptions" />
-        <Button class="rounded-xl" @click="search">查询</Button>
+        <div class="space-y-1.5">
+          <Label>IP</Label>
+          <Autocomplete
+            v-model="ip"
+            :fetch="(q) => adminApi.ipsSuggest(q).then((r) => r.items)"
+            placeholder="输入前几位会有建议"
+          />
+        </div>
+        <div class="space-y-1.5">
+          <Label>镜像名称</Label>
+          <Input v-model="image" placeholder="按镜像名筛选" />
+        </div>
+        <div class="space-y-1.5">
+          <Label>用户</Label>
+          <MultiSelect v-model="userIds" :options="userOptions" placeholder="全部用户" />
+        </div>
+        <div class="space-y-1.5">
+          <Label>来源（registry）</Label>
+          <Select v-model="registry" :options="registryOptions" />
+        </div>
+        <div class="space-y-1.5">
+          <Label>类型</Label>
+          <Select v-model="category" :options="categoryOptions" />
+        </div>
+        <div class="flex items-end">
+          <Button class="rounded-xl" @click="search">查询</Button>
+        </div>
         <DateRange v-model="dateRange" class="md:col-span-3" @update:model-value="search" />
       </CardContent>
     </Card>
@@ -171,7 +190,7 @@ watch(page, load)
             <td class="px-3 py-2.5 tabular-nums whitespace-nowrap">{{ formatTime(p.started_at) }}</td>
             <td class="max-w-[14rem] px-3 py-2.5">
               <div class="truncate font-medium" :title="p.image_name">{{ displayPullName(p) }}</div>
-              <div class="truncate text-xs text-muted-foreground">{{ p.registry }}</div>
+              <div class="truncate text-xs text-muted-foreground">来源：{{ p.registry }}</div>
             </td>
             <td class="px-3 py-2.5 whitespace-nowrap">
               <span v-if="p.username">{{ p.username }}</span>
@@ -179,7 +198,7 @@ watch(page, load)
               <span v-else class="text-muted-foreground">匿名</span>
             </td>
             <td class="px-3 py-2.5 font-mono text-xs whitespace-nowrap">{{ p.client_ip }}</td>
-            <td class="px-3 py-2.5 whitespace-nowrap"><Badge variant="secondary">{{ p.category }}</Badge></td>
+            <td class="px-3 py-2.5 whitespace-nowrap"><Badge variant="secondary">{{ categoryLabel(p.category) }}</Badge></td>
             <td class="px-3 py-2.5 text-right tabular-nums whitespace-nowrap">{{ formatBytes(p.bytes_total) }}</td>
             <td class="px-3 py-2.5 whitespace-nowrap">
               <Button size="sm" variant="ghost" @click="openDetail(p.id)">详情</Button>
