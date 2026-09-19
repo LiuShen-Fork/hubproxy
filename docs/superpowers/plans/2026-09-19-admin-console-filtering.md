@@ -1698,7 +1698,7 @@ watch(page, load)
             <td class="px-3 py-2.5 whitespace-nowrap">
               <template v-if="it.users.length">
                 <span v-if="it.users.length > 1" class="mr-1.5 inline-block" title="多个用户共用同一 IP，值得留意">
-                  <Badge variant="destructive">{{ it.users.length }}</Badge>
+                  <Badge variant="danger">{{ it.users.length }}</Badge>
                 </span>
                 <span :class="it.users.length > 1 ? 'text-destructive' : ''">{{ it.users.join('、') }}</span>
               </template>
