@@ -265,3 +265,40 @@ func TestGetPullSessionResolvesUsernameAndKeepsAnonymous(t *testing.T) {
 		t.Fatalf("匿名行的用户名应为空，实际 %q", anonymous.Username)
 	}
 }
+
+func TestSuggestIPsMatchesPrefixAndCapsResults(t *testing.T) {
+	useTestDB(t)
+	if err := migrate(); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	insertPullSession(t, "s-a", "10.1.1.1", "alpine", 0)
+	insertPullSession(t, "s-b", "10.1.1.2", "alpine", 0)
+	insertPullSession(t, "s-c", "10.1.2.1", "alpine", 0)
+	insertPullSession(t, "s-d", "192.168.1.1", "alpine", 0)
+
+	got, err := SuggestIPs("10.1.1", 10)
+	if err != nil {
+		t.Fatalf("suggest: %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("前缀 10.1.1 应匹配 2 个 IP，实际 %#v", got)
+	}
+
+	// 上限必须生效
+	got, err = SuggestIPs("10.1.", 1)
+	if err != nil {
+		t.Fatalf("suggest: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("limit=1 时应只返回 1 个，实际 %#v", got)
+	}
+
+	// 空前缀返回空数组，而不是把全部 IP 倒出来
+	got, err = SuggestIPs("", 10)
+	if err != nil {
+		t.Fatalf("suggest: %v", err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("空前缀应返回空数组，实际 %#v", got)
+	}
+}

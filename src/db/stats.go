@@ -993,3 +993,33 @@ func attachUsersToIPStats(list []IPStat) error {
 	}
 	return nil
 }
+
+// SuggestIPs 返回以 prefix 开头的 IP，供前端自动补全使用。
+// 前缀为空时返回空数组——否则一次空输入就会把整张表的 IP 倒给前端。
+func SuggestIPs(prefix string, limit int) ([]string, error) {
+	out := []string{}
+	prefix = strings.TrimSpace(prefix)
+	if prefix == "" {
+		return out, nil
+	}
+	if limit <= 0 || limit > 50 {
+		limit = 10
+	}
+	rows, err := DB.Query(
+		`SELECT DISTINCT client_ip FROM pull_sessions
+		 WHERE client_ip LIKE ? ORDER BY client_ip LIMIT ?`,
+		prefix+"%", limit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var ip string
+		if err := rows.Scan(&ip); err != nil {
+			return nil, err
+		}
+		out = append(out, ip)
+	}
+	return out, rows.Err()
+}

@@ -52,6 +52,7 @@ func RegisterAdminRoutes(r *gin.Engine) {
 		adminOnly.GET("/pulls/:id", AdminGetPull)
 		adminOnly.GET("/images", AdminListImages)
 		adminOnly.GET("/ips", AdminListIPs)
+		adminOnly.GET("/ips/suggest", AdminSuggestIPs)
 
 		adminOnly.GET("/users", AdminListUsers)
 		adminOnly.POST("/users", AdminCreateUser)
@@ -140,6 +141,16 @@ func AdminListIPs(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"items": list, "total": total, "page": page, "page_size": pageSize})
+}
+
+// AdminSuggestIPs 供筛选框的自动补全使用。只回前缀匹配的少量 IP。
+func AdminSuggestIPs(c *gin.Context) {
+	items, err := db.SuggestIPs(c.Query("prefix"), 10)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"items": items})
 }
 
 func AdminListUsers(c *gin.Context) {
