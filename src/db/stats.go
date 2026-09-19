@@ -962,7 +962,7 @@ func ListIPStats(ip, from, to string, page, pageSize int) ([]IPStat, int, error)
 	if list == nil {
 		list = []IPStat{}
 	}
-	if err := attachUsersToIPStats(list); err != nil {
+	if err := attachUsersToIPStats(list, from, to); err != nil {
 		return nil, 0, err
 	}
 	return list, total, rows.Err()
@@ -970,7 +970,9 @@ func ListIPStats(ip, from, to string, page, pageSize int) ([]IPStat, int, error)
 
 // attachUsersToIPStats 为当前页的每个 IP 补出关联用户名。
 // 只查这一页的 IP，避免为分页列表把整表扫一遍。
-func attachUsersToIPStats(list []IPStat) error {
+// from/to 必须与 ListIPStats 的聚合查询用同一组边界：users 列描述的是「所选时间窗内
+// 这个 IP 用过哪些账号」，否则同一行里 pull_count 与 users 会是两个不同的时间范围。
+func attachUsersToIPStats(list []IPStat, from, to string) error {
 	if len(list) == 0 {
 		return nil
 	}
@@ -980,11 +982,20 @@ func attachUsersToIPStats(list []IPStat) error {
 		placeholders[i] = "?"
 		args[i] = it.ClientIP
 	}
+	cond := []string{"p.user_id IS NOT NULL", "p.client_ip IN (" + strings.Join(placeholders, ",") + ")"}
+	if from != "" {
+		cond = append(cond, "p.started_at >= ?")
+		args = append(args, from)
+	}
+	if to != "" {
+		cond = append(cond, "p.started_at <= ?")
+		args = append(args, to)
+	}
 	rows, err := DB.Query(
 		`SELECT p.client_ip, u.username
 		 FROM pull_sessions p
 		 JOIN users u ON u.id = p.user_id
-		 WHERE p.user_id IS NOT NULL AND p.client_ip IN (`+strings.Join(placeholders, ",")+`)
+		 WHERE `+strings.Join(cond, " AND ")+`
 		 GROUP BY p.client_ip, u.username
 		 ORDER BY p.client_ip, u.username`, args...,
 	)

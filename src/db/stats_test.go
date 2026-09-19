@@ -368,3 +368,59 @@ func TestListIPStatsFiltersByTimeRange(t *testing.T) {
 		t.Fatalf("按起始时间筛选后应只剩 10.9.9.2，实际 total=%d %#v", total, list)
 	}
 }
+
+func TestListIPStatsTimeRangeAlsoNarrowsUsers(t *testing.T) {
+	useTestDB(t)
+	if err := migrate(); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	now := Now()
+	for _, u := range []struct {
+		id   int64
+		name string
+	}{{1, "earlyuser"}, {2, "lateuser"}} {
+		if _, err := DB.Exec(
+			`INSERT INTO users (id, username, password_hash, role, created_at, updated_at)
+			 VALUES (?, ?, 'hash', 'user', ?, ?)`, u.id, u.name, now, now,
+		); err != nil {
+			t.Fatalf("insert user: %v", err)
+		}
+	}
+	insert := func(id string, userID int64, startedAt string) {
+		t.Helper()
+		if _, err := DB.Exec(
+			`INSERT INTO pull_sessions
+			 (id, client_ip, image_name, registry, tag, category, started_at, last_seen_at,
+			  status, bytes_total, layer_count, request_count, user_id)
+			 VALUES (?, '10.7.7.7', 'app', 'docker.io', 'latest', 'user', ?, ?, 'completed', 10, 1, 1, ?)`,
+			id, startedAt, startedAt, userID,
+		); err != nil {
+			t.Fatalf("insert: %v", err)
+		}
+	}
+	// 同一个 IP，两个用户，时间相差 8 个月
+	insert("s-early", 1, "2026-01-01T00:00:00Z")
+	insert("s-late", 2, "2026-09-01T00:00:00Z")
+
+	// 不传时间范围：两个用户都应出现
+	all, _, err := ListIPStats("10.7.7.7", "", "", 1, 50)
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(all) != 1 || len(all[0].Users) != 2 {
+		t.Fatalf("不传时间范围应关联两个用户，实际 %#v", all)
+	}
+
+	// 只取 6 月之后：聚合行与 users 列都必须只剩 lateuser，
+	// 否则这一行的 pull_count 与 users 描述的是两个不同的时间范围。
+	win, total, err := ListIPStats("10.7.7.7", "2026-06-01T00:00:00Z", "", 1, 50)
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if total != 1 || len(win) != 1 {
+		t.Fatalf("时间窗内应只剩 1 行，实际 total=%d %#v", total, win)
+	}
+	if len(win[0].Users) != 1 || win[0].Users[0] != "lateuser" {
+		t.Fatalf("users 列必须与时间窗一致，应只有 lateuser，实际 %#v", win[0].Users)
+	}
+}
