@@ -97,6 +97,11 @@ export interface PullSession {
   bytes_total: number
   layer_count: number
   request_count: number
+  /**
+   * 后端 json tag 为 omitempty：匿名会话会整个省略该键，前端读到的是 undefined 而不是 0。
+   * 因此 `p.user_id` 为假值时按「匿名」渲染，非 0 时才显示 `#<id>`。
+   */
+  user_id?: number
   username: string
 }
 
