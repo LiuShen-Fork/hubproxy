@@ -1845,6 +1845,8 @@ watch(page, load)
 
 **修正一处既有错误**：类别列的单元格当前是 `{{ pullSourceLabel(it) }}`，而 `pullSourceLabel` 返回 `p.registry || 'Docker'` ——也就是说它显示的是 **registry**，与同表已有的 Registry 列内容重复，类别列从来没显示过真正的类别。改为直接显示 `it.category`：
 
+**同一列的表头也要从「类别」改成「类型」**，与全局拉取页和筛选栏保持一套口径（来源 = registry、类型 = category）。只改单元格不改表头，会出现「表头叫类别、内容却是 library/user、而旁边筛选框把它叫类型」的三方不一致：
+
 ```html
             <td class="px-3 py-2.5 whitespace-nowrap"><Badge variant="secondary">{{ it.category }}</Badge></td>
 ```
