@@ -1362,7 +1362,6 @@ import {
   displayPullName,
   formatBytes,
   formatTime,
-  pullSourceLabel,
   type PullSession,
   type User,
 } from '../api'
@@ -1486,7 +1485,7 @@ watch(page, load)
               <th class="px-3 py-2.5 font-medium">内容</th>
               <th class="px-3 py-2.5 font-medium whitespace-nowrap">用户</th>
               <th class="px-3 py-2.5 font-medium whitespace-nowrap">IP</th>
-              <th class="px-3 py-2.5 font-medium whitespace-nowrap">来源</th>
+              <th class="px-3 py-2.5 font-medium whitespace-nowrap">类型</th>
               <th class="px-3 py-2.5 font-medium whitespace-nowrap text-right">流量</th>
               <th class="px-3 py-2.5 font-medium whitespace-nowrap"></th>
             </tr>
@@ -1519,7 +1518,10 @@ watch(page, load)
           </tr>
 ```
 
-**注意**：来源列现在显示 `p.category`（library/user），因为 `registry` 已经单独占了一列显示在镜像名下方，`pullSourceLabel` 会把 registry 显示成「Docker」在语义上重复。
+**注意两处语义修正**：
+
+- 该列的表头是**类型**而不是「来源」——它显示的是 `p.category`（library/user），与筛选栏里「来源=registry、类型=category」的命名保持一套口径。
+- 因此本页不再需要 `pullSourceLabel`（它返回的是 registry，而 registry 已经显示在镜像名下方那一行）。Step 1 的 import 里已经不含它，**不要**再把它加回来——`noUnusedLocals` 会让构建失败。
 
 - [ ] **Step 4: 空态与加载态**
 
@@ -1819,7 +1821,15 @@ watch(page, load)
 
 - [ ] **Step 3: 表格对齐与状态**
 
-表头「拉取次数」「独立 IP」「总流量」三个 `<th>` 加 `text-right`；对应 `<td>` 加 `text-right tabular-nums`。行 `<tr>` 加 `transition-colors hover:bg-accent/40`。类别列继续用 `pullSourceLabel(it)`。
+表头「拉取次数」「独立 IP」「总流量」三个 `<th>` 加 `text-right`；对应 `<td>` 加 `text-right tabular-nums`。行 `<tr>` 加 `transition-colors hover:bg-accent/40`。
+
+**修正一处既有错误**：类别列的单元格当前是 `{{ pullSourceLabel(it) }}`，而 `pullSourceLabel` 返回 `p.registry || 'Docker'` ——也就是说它显示的是 **registry**，与同表已有的 Registry 列内容重复，类别列从来没显示过真正的类别。改为直接显示 `it.category`：
+
+```html
+            <td class="px-3 py-2.5 whitespace-nowrap"><Badge variant="secondary">{{ it.category }}</Badge></td>
+```
+
+`pullSourceLabel` 在 `web/src/admin/api.ts` 里仍被 DashboardPage / UserPullsPage / UserDashboardPage 使用，**不要删除它**，只是本页不再引用。
 
 把空态那行替换为：
 
