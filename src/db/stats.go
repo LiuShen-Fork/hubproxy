@@ -839,7 +839,9 @@ func GetPullSession(id string) (*PullSession, []PullEvent, error) {
 	return s, events, nil
 }
 
-func ListImageStats(image, category, registry string, page, pageSize int) ([]ImageStat, int, error) {
+// ListImageStats 聚合镜像维度的统计。from/to 为空串表示不设该侧边界，
+// 与 ListPullSessions 的时间筛选语义一致（RFC3339 字符串比较，started_at 为闭区间）。
+func ListImageStats(image, category, registry, from, to string, page, pageSize int) ([]ImageStat, int, error) {
 	if page < 1 {
 		page = 1
 	}
@@ -859,6 +861,14 @@ func ListImageStats(image, category, registry string, page, pageSize int) ([]Ima
 	if registry != "" {
 		where = append(where, "registry = ?")
 		args = append(args, registry)
+	}
+	if from != "" {
+		where = append(where, "started_at >= ?")
+		args = append(args, from)
+	}
+	if to != "" {
+		where = append(where, "started_at <= ?")
+		args = append(args, to)
 	}
 	clause := strings.Join(where, " AND ")
 
@@ -897,22 +907,34 @@ func ListImageStats(image, category, registry string, page, pageSize int) ([]Ima
 	return list, total, rows.Err()
 }
 
-func ListIPStats(ip string, page, pageSize int) ([]IPStat, int, error) {
+// ListIPStats 聚合客户端 IP 维度的统计。from/to 语义同 ListImageStats：
+// 空串表示不筛，传入后会收窄参与聚合的行，因此 pull_count/bytes_total/last_seen
+// 均为「所选时间窗内」的值。
+func ListIPStats(ip, from, to string, page, pageSize int) ([]IPStat, int, error) {
 	if page < 1 {
 		page = 1
 	}
 	if pageSize < 1 || pageSize > 100 {
 		pageSize = 20
 	}
-	where := "1=1"
+	where := []string{"1=1"}
 	args := []any{}
 	if ip != "" {
-		where = "client_ip LIKE ?"
+		where = append(where, "client_ip LIKE ?")
 		args = append(args, "%"+ip+"%")
 	}
+	if from != "" {
+		where = append(where, "started_at >= ?")
+		args = append(args, from)
+	}
+	if to != "" {
+		where = append(where, "started_at <= ?")
+		args = append(args, to)
+	}
+	clause := strings.Join(where, " AND ")
 	var total int
 	if err := DB.QueryRow(
-		`SELECT COUNT(*) FROM (SELECT 1 FROM pull_sessions WHERE `+where+` GROUP BY client_ip)`,
+		`SELECT COUNT(*) FROM (SELECT 1 FROM pull_sessions WHERE `+clause+` GROUP BY client_ip)`,
 		args...,
 	).Scan(&total); err != nil {
 		return nil, 0, err
@@ -921,7 +943,7 @@ func ListIPStats(ip string, page, pageSize int) ([]IPStat, int, error) {
 	qArgs := append(append([]any{}, args...), pageSize, offset)
 	rows, err := DB.Query(
 		`SELECT client_ip, COUNT(*), COALESCE(SUM(bytes_total),0), MAX(last_seen_at)
-		 FROM pull_sessions WHERE `+where+`
+		 FROM pull_sessions WHERE `+clause+`
 		 GROUP BY client_ip ORDER BY COUNT(*) DESC LIMIT ? OFFSET ?`,
 		qArgs...,
 	)

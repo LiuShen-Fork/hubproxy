@@ -124,7 +124,10 @@ func AdminGetPull(c *gin.Context) {
 func AdminListImages(c *gin.Context) {
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "20"))
-	list, total, err := db.ListImageStats(c.Query("image"), c.Query("category"), c.Query("registry"), page, pageSize)
+	list, total, err := db.ListImageStats(
+		c.Query("image"), c.Query("category"), c.Query("registry"),
+		c.Query("from"), c.Query("to"), page, pageSize,
+	)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -135,7 +138,7 @@ func AdminListImages(c *gin.Context) {
 func AdminListIPs(c *gin.Context) {
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "20"))
-	list, total, err := db.ListIPStats(c.Query("ip"), page, pageSize)
+	list, total, err := db.ListIPStats(c.Query("ip"), c.Query("from"), c.Query("to"), page, pageSize)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return

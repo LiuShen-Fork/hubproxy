@@ -181,7 +181,7 @@ func TestListIPStatsAggregatesUsersPerIP(t *testing.T) {
 	// 另一个 IP 只有匿名
 	insertPullSession(t, "s-3", "10.0.0.8", "busybox", 0)
 
-	list, _, err := ListIPStats("", 1, 50)
+	list, _, err := ListIPStats("", "", "", 1, 50)
 	if err != nil {
 		t.Fatalf("list ips: %v", err)
 	}
@@ -300,5 +300,71 @@ func TestSuggestIPsMatchesPrefixAndCapsResults(t *testing.T) {
 	}
 	if len(got) != 0 {
 		t.Fatalf("空前缀应返回空数组，实际 %#v", got)
+	}
+}
+
+func TestListImageStatsFiltersByTimeRange(t *testing.T) {
+	useTestDB(t)
+	if err := migrate(); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	insert := func(id, image, startedAt string) {
+		t.Helper()
+		if _, err := DB.Exec(
+			`INSERT INTO pull_sessions
+			 (id, client_ip, image_name, registry, tag, category, started_at, last_seen_at,
+			  status, bytes_total, layer_count, request_count)
+			 VALUES (?, '10.0.0.1', ?, 'docker.io', 'latest', 'library', ?, ?, 'completed', 10, 1, 1)`,
+			id, image, startedAt, startedAt,
+		); err != nil {
+			t.Fatalf("insert: %v", err)
+		}
+	}
+	insert("s-old", "old/app", "2026-01-01T00:00:00Z")
+	insert("s-new", "new/app", "2026-09-01T00:00:00Z")
+
+	got, total, err := ListImageStats("", "", "", "2026-06-01T00:00:00Z", "", 1, 50)
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if total != 1 || len(got) != 1 || got[0].ImageName != "new/app" {
+		t.Fatalf("按起始时间筛选后应只剩 new/app，实际 total=%d %#v", total, got)
+	}
+
+	got, total, err = ListImageStats("", "", "", "", "", 1, 50)
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if total != 2 {
+		t.Fatalf("不传时间范围应返回全部 2 条，实际 %d", total)
+	}
+}
+
+func TestListIPStatsFiltersByTimeRange(t *testing.T) {
+	useTestDB(t)
+	if err := migrate(); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	insert := func(id, ip, startedAt string) {
+		t.Helper()
+		if _, err := DB.Exec(
+			`INSERT INTO pull_sessions
+			 (id, client_ip, image_name, registry, tag, category, started_at, last_seen_at,
+			  status, bytes_total, layer_count, request_count)
+			 VALUES (?, ?, 'app', 'docker.io', 'latest', 'user', ?, ?, 'completed', 10, 1, 1)`,
+			id, ip, startedAt, startedAt,
+		); err != nil {
+			t.Fatalf("insert: %v", err)
+		}
+	}
+	insert("s-1", "10.9.9.1", "2026-01-01T00:00:00Z")
+	insert("s-2", "10.9.9.2", "2026-09-01T00:00:00Z")
+
+	list, total, err := ListIPStats("", "2026-06-01T00:00:00Z", "", 1, 50)
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if total != 1 || len(list) != 1 || list[0].ClientIP != "10.9.9.2" {
+		t.Fatalf("按起始时间筛选后应只剩 10.9.9.2，实际 total=%d %#v", total, list)
 	}
 }
