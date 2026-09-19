@@ -24,6 +24,10 @@ type PullSession struct {
 	LayerCount   int    `json:"layer_count"`
 	RequestCount int    `json:"request_count"`
 	UserID       int64  `json:"user_id,omitempty"`
+	// Username 由服务端 LEFT JOIN users 解析。匿名行与指向已删除用户的行都返回空串，
+	// 服务端不合成 "#<id>" 之类的占位——前端凭 UserID 区分这两种情况：
+	// UserID 非 0 显示 "#<id>"，为 0 显示「匿名」。
+	Username string `json:"username"`
 }
 
 type PullEvent struct {
@@ -63,6 +67,9 @@ type IPStat struct {
 	PullCount  int64  `json:"pull_count"`
 	BytesTotal int64  `json:"bytes_total"`
 	LastSeen   string `json:"last_seen"`
+	// Users 是该 IP 关联过的用户名（去重、已排序）。匿名拉取不产生条目。
+	// 同一 IP 出现多个用户是值得注意的信号，前端会据此高亮。
+	Users []string `json:"users"`
 }
 
 type CategoryStat struct {
@@ -705,31 +712,31 @@ func ListPullSessions(f PullListFilter) ([]PullSession, int, error) {
 	where := []string{"1=1"}
 	args := []any{}
 	if f.IP != "" {
-		where = append(where, "client_ip LIKE ?")
+		where = append(where, "p.client_ip LIKE ?")
 		args = append(args, "%"+f.IP+"%")
 	}
 	if f.Image != "" {
-		where = append(where, "image_name LIKE ?")
+		where = append(where, "p.image_name LIKE ?")
 		args = append(args, "%"+f.Image+"%")
 	}
 	if f.Category != "" {
-		where = append(where, "category = ?")
+		where = append(where, "p.category = ?")
 		args = append(args, f.Category)
 	}
 	if f.Registry != "" {
-		where = append(where, "registry = ?")
+		where = append(where, "p.registry = ?")
 		args = append(args, f.Registry)
 	}
 	if f.Status != "" {
-		where = append(where, "status = ?")
+		where = append(where, "p.status = ?")
 		args = append(args, f.Status)
 	}
 	if f.From != "" {
-		where = append(where, "started_at >= ?")
+		where = append(where, "p.started_at >= ?")
 		args = append(args, f.From)
 	}
 	if f.To != "" {
-		where = append(where, "started_at <= ?")
+		where = append(where, "p.started_at <= ?")
 		args = append(args, f.To)
 	}
 	if len(f.UserIDs) > 0 {
@@ -738,25 +745,29 @@ func ListPullSessions(f PullListFilter) ([]PullSession, int, error) {
 			placeholders[i] = "?"
 			args = append(args, id)
 		}
-		where = append(where, "user_id IN ("+strings.Join(placeholders, ",")+")")
+		where = append(where, "p.user_id IN ("+strings.Join(placeholders, ",")+")")
 	}
 	if f.CountedOnly {
-		where = append(where, countedPullSQL)
+		where = append(where, "p."+countedPullSQL)
 	}
 	clause := strings.Join(where, " AND ")
 
 	var total int
-	if err := DB.QueryRow(`SELECT COUNT(*) FROM pull_sessions WHERE `+clause, args...).Scan(&total); err != nil {
+	if err := DB.QueryRow(`SELECT COUNT(*) FROM pull_sessions p WHERE `+clause, args...).Scan(&total); err != nil {
 		return nil, 0, err
 	}
 
 	offset := (f.Page - 1) * f.PageSize
+	// LEFT JOIN 而不是 INNER JOIN：匿名行与指向已删除用户的行都必须留下
 	query := fmt.Sprintf(
-		`SELECT id, client_ip, image_name, registry, tag, category, started_at, last_seen_at,
-		        COALESCE(completed_at,''), status, bytes_total, layer_count, request_count,
-		        COALESCE(user_id,0)
-		 FROM pull_sessions WHERE %s
-		 ORDER BY started_at DESC LIMIT ? OFFSET ?`, clause,
+		`SELECT p.id, p.client_ip, p.image_name, p.registry, p.tag, p.category,
+		        p.started_at, p.last_seen_at, COALESCE(p.completed_at,''), p.status,
+		        p.bytes_total, p.layer_count, p.request_count, COALESCE(p.user_id,0),
+		        COALESCE(u.username, '')
+		 FROM pull_sessions p
+		 LEFT JOIN users u ON u.id = p.user_id
+		 WHERE %s
+		 ORDER BY p.started_at DESC LIMIT ? OFFSET ?`, clause,
 	)
 	qArgs := append(append([]any{}, args...), f.PageSize, offset)
 	rows, err := DB.Query(query, qArgs...)
@@ -771,7 +782,7 @@ func ListPullSessions(f PullListFilter) ([]PullSession, int, error) {
 		if err := rows.Scan(
 			&s.ID, &s.ClientIP, &s.ImageName, &s.Registry, &s.Tag, &s.Category,
 			&s.StartedAt, &s.LastSeenAt, &s.CompletedAt, &s.Status,
-			&s.BytesTotal, &s.LayerCount, &s.RequestCount, &s.UserID,
+			&s.BytesTotal, &s.LayerCount, &s.RequestCount, &s.UserID, &s.Username,
 		); err != nil {
 			return nil, 0, err
 		}
@@ -785,15 +796,19 @@ func ListPullSessions(f PullListFilter) ([]PullSession, int, error) {
 
 func GetPullSession(id string) (*PullSession, []PullEvent, error) {
 	s := &PullSession{}
+	// 与列表查询保持一致：LEFT JOIN 而非 INNER JOIN，匿名行必须照样查得到。
 	err := DB.QueryRow(
-		`SELECT id, client_ip, image_name, registry, tag, category, started_at, last_seen_at,
-		        COALESCE(completed_at,''), status, bytes_total, layer_count, request_count,
-		        COALESCE(user_id,0)
-		 FROM pull_sessions WHERE id = ?`, id,
+		`SELECT p.id, p.client_ip, p.image_name, p.registry, p.tag, p.category,
+		        p.started_at, p.last_seen_at, COALESCE(p.completed_at,''), p.status,
+		        p.bytes_total, p.layer_count, p.request_count, COALESCE(p.user_id,0),
+		        COALESCE(u.username, '')
+		 FROM pull_sessions p
+		 LEFT JOIN users u ON u.id = p.user_id
+		 WHERE p.id = ?`, id,
 	).Scan(
 		&s.ID, &s.ClientIP, &s.ImageName, &s.Registry, &s.Tag, &s.Category,
 		&s.StartedAt, &s.LastSeenAt, &s.CompletedAt, &s.Status,
-		&s.BytesTotal, &s.LayerCount, &s.RequestCount, &s.UserID,
+		&s.BytesTotal, &s.LayerCount, &s.RequestCount, &s.UserID, &s.Username,
 	)
 	if err == sql.ErrNoRows {
 		return nil, nil, fmt.Errorf("not found")
@@ -925,5 +940,56 @@ func ListIPStats(ip string, page, pageSize int) ([]IPStat, int, error) {
 	if list == nil {
 		list = []IPStat{}
 	}
+	if err := attachUsersToIPStats(list); err != nil {
+		return nil, 0, err
+	}
 	return list, total, rows.Err()
+}
+
+// attachUsersToIPStats 为当前页的每个 IP 补出关联用户名。
+// 只查这一页的 IP，避免为分页列表把整表扫一遍。
+func attachUsersToIPStats(list []IPStat) error {
+	if len(list) == 0 {
+		return nil
+	}
+	placeholders := make([]string, len(list))
+	args := make([]any, len(list))
+	for i, it := range list {
+		placeholders[i] = "?"
+		args[i] = it.ClientIP
+	}
+	rows, err := DB.Query(
+		`SELECT p.client_ip, u.username
+		 FROM pull_sessions p
+		 JOIN users u ON u.id = p.user_id
+		 WHERE p.user_id IS NOT NULL AND p.client_ip IN (`+strings.Join(placeholders, ",")+`)
+		 GROUP BY p.client_ip, u.username
+		 ORDER BY p.client_ip, u.username`, args...,
+	)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	byIP := map[string][]string{}
+	for rows.Next() {
+		var ip, name string
+		if err := rows.Scan(&ip, &name); err != nil {
+			return err
+		}
+		byIP[ip] = append(byIP[ip], name)
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	for i := range list {
+		// 没有关联用户时显式置为空切片而非留 nil：Users 无 omitempty，
+		// nil 会被序列化成 "users": null，前端读 users.length 会抛 TypeError。
+		if names := byIP[list[i].ClientIP]; len(names) > 0 {
+			list[i].Users = names
+		} else {
+			list[i].Users = []string{}
+		}
+	}
+	return nil
 }

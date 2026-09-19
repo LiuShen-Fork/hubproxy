@@ -123,3 +123,145 @@ func TestListPullSessionsEmptyUserFilterReturnsAll(t *testing.T) {
 		t.Fatalf("匿名行的 UserID 应为 0，实际 %d", got[0].UserID)
 	}
 }
+
+func TestListPullSessionsResolvesUsernameAndKeepsAnonymous(t *testing.T) {
+	useTestDB(t)
+	if err := migrate(); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	now := Now()
+	if _, err := DB.Exec(
+		`INSERT INTO users (id, username, password_hash, role, created_at, updated_at)
+		 VALUES (1, 'alice', 'hash', 'user', ?, ?)`, now, now,
+	); err != nil {
+		t.Fatalf("insert user: %v", err)
+	}
+	insertPullSession(t, "s-alice", "10.0.0.1", "alpine", 1)
+	insertPullSession(t, "s-anon", "10.0.0.2", "busybox", 0)
+
+	got, _, err := ListPullSessions(PullListFilter{Page: 1, PageSize: 50})
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	byID := map[string]PullSession{}
+	for _, s := range got {
+		byID[s.ID] = s
+	}
+	if byID["s-alice"].Username != "alice" {
+		t.Fatalf("s-alice 的用户名应为 alice，实际 %q", byID["s-alice"].Username)
+	}
+	if _, ok := byID["s-anon"]; !ok {
+		t.Fatal("匿名行被 INNER JOIN 弄丢了——必须用 LEFT JOIN 保留")
+	}
+	if byID["s-anon"].Username != "" {
+		t.Fatalf("匿名行的用户名应为空，实际 %q", byID["s-anon"].Username)
+	}
+}
+
+func TestListIPStatsAggregatesUsersPerIP(t *testing.T) {
+	useTestDB(t)
+	if err := migrate(); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	now := Now()
+	for _, u := range []struct {
+		id   int64
+		name string
+	}{{1, "alice"}, {2, "bob"}} {
+		if _, err := DB.Exec(
+			`INSERT INTO users (id, username, password_hash, role, created_at, updated_at)
+			 VALUES (?, ?, 'hash', 'user', ?, ?)`, u.id, u.name, now, now,
+		); err != nil {
+			t.Fatalf("insert user: %v", err)
+		}
+	}
+	// 同一个 IP 被两个用户使用——这正是要暴露的滥用信号
+	insertPullSession(t, "s-1", "10.0.0.7", "alpine", 1)
+	insertPullSession(t, "s-2", "10.0.0.7", "nginx", 2)
+	// 另一个 IP 只有匿名
+	insertPullSession(t, "s-3", "10.0.0.8", "busybox", 0)
+
+	list, _, err := ListIPStats("", 1, 50)
+	if err != nil {
+		t.Fatalf("list ips: %v", err)
+	}
+	byIP := map[string]IPStat{}
+	for _, it := range list {
+		byIP[it.ClientIP] = it
+	}
+	shared := byIP["10.0.0.7"]
+	if len(shared.Users) != 2 || shared.Users[0] != "alice" || shared.Users[1] != "bob" {
+		t.Fatalf("10.0.0.7 应关联 alice 与 bob，实际 %#v", shared.Users)
+	}
+	if byIP["10.0.0.8"].Users == nil {
+		t.Fatal("纯匿名的 IP 的 Users 必须是空切片而不是 nil——nil 会被序列化成 null，前端读 .length 会抛 TypeError")
+	}
+	if len(byIP["10.0.0.8"].Users) != 0 {
+		t.Fatalf("纯匿名的 IP 不应有用户，实际 %#v", byIP["10.0.0.8"].Users)
+	}
+}
+
+func TestListPullSessionsCountedOnlyExcludesZeroLayerProbes(t *testing.T) {
+	useTestDB(t)
+	if err := migrate(); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	// 正常计数的一次拉取（helper 固定 layer_count = 1）
+	insertPullSession(t, "s-counted", "10.0.0.1", "alpine", 0)
+	// 只看过 manifest、没下过任何层的探测记录：layer_count = 0，不该算一次拉取。
+	// helper 把 layer_count 写死成 1，所以这里直接插入以便控制该列。
+	now := Now()
+	if _, err := DB.Exec(
+		`INSERT INTO pull_sessions
+		 (id, client_ip, image_name, registry, tag, category, started_at, last_seen_at,
+		  status, bytes_total, layer_count, request_count)
+		 VALUES ('s-probe', '10.0.0.2', 'busybox', 'docker.io', 'latest', 'library',
+		         ?, ?, 'active', 0, 0, 1)`,
+		now, now,
+	); err != nil {
+		t.Fatalf("insert probe session: %v", err)
+	}
+
+	got, total, err := ListPullSessions(PullListFilter{Page: 1, PageSize: 10, CountedOnly: true})
+	if err != nil {
+		t.Fatalf("CountedOnly 查询不应报错：%v", err)
+	}
+	if total != 1 || len(got) != 1 {
+		t.Fatalf("CountedOnly 应只返回已计数的 1 条，实际 total=%d len=%d", total, len(got))
+	}
+	if got[0].ID != "s-counted" {
+		t.Fatalf("CountedOnly 返回了未计数的探测记录 %q", got[0].ID)
+	}
+}
+
+func TestGetPullSessionResolvesUsernameAndKeepsAnonymous(t *testing.T) {
+	useTestDB(t)
+	if err := migrate(); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	now := Now()
+	if _, err := DB.Exec(
+		`INSERT INTO users (id, username, password_hash, role, created_at, updated_at)
+		 VALUES (1, 'alice', 'hash', 'user', ?, ?)`, now, now,
+	); err != nil {
+		t.Fatalf("insert user: %v", err)
+	}
+	insertPullSession(t, "s-alice", "10.0.0.1", "alpine", 1)
+	insertPullSession(t, "s-anon", "10.0.0.2", "busybox", 0)
+
+	attributed, _, err := GetPullSession("s-alice")
+	if err != nil {
+		t.Fatalf("get attributed session: %v", err)
+	}
+	if attributed.Username != "alice" {
+		t.Fatalf("详情接口的用户名应为 alice，实际 %q", attributed.Username)
+	}
+
+	anonymous, _, err := GetPullSession("s-anon")
+	if err != nil {
+		t.Fatalf("匿名行的详情不应报错：%v", err)
+	}
+	if anonymous.Username != "" {
+		t.Fatalf("匿名行的用户名应为空，实际 %q", anonymous.Username)
+	}
+}
