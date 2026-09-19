@@ -78,14 +78,16 @@ type DailyTrendItem struct {
 }
 
 type PullListFilter struct {
-	IP          string
-	Image       string
-	Category    string
-	Registry    string
-	Status      string
-	From        string
-	To          string
-	UserID      int64
+	IP       string
+	Image    string
+	Category string
+	Registry string
+	Status   string
+	From     string
+	To       string
+	// UserIDs 为空表示不按用户筛选；非空时用 IN 匹配。
+	// 注意 user_id 可为 NULL（匿名拉取），NULL 行永远不匹配任何 UserIDs。
+	UserIDs     []int64
 	Page        int
 	PageSize    int
 	CountedOnly bool // only sessions with at least one layer blob
@@ -353,7 +355,7 @@ func GetUserDashboardStats(userID int64, days int) (*DashboardStats, error) {
 		}
 	}
 	stats.DailyTrend = fillDailyTrend(days, userID)
-	recent, _, _ := ListPullSessions(PullListFilter{UserID: userID, Page: 1, PageSize: 30, CountedOnly: true})
+	recent, _, _ := ListPullSessions(PullListFilter{UserIDs: []int64{userID}, Page: 1, PageSize: 30, CountedOnly: true})
 	stats.RecentPulls = recent
 	if stats.TopImages == nil {
 		stats.TopImages = []ImageStat{}
@@ -730,9 +732,13 @@ func ListPullSessions(f PullListFilter) ([]PullSession, int, error) {
 		where = append(where, "started_at <= ?")
 		args = append(args, f.To)
 	}
-	if f.UserID > 0 {
-		where = append(where, "user_id = ?")
-		args = append(args, f.UserID)
+	if len(f.UserIDs) > 0 {
+		placeholders := make([]string, len(f.UserIDs))
+		for i, id := range f.UserIDs {
+			placeholders[i] = "?"
+			args = append(args, id)
+		}
+		where = append(where, "user_id IN ("+strings.Join(placeholders, ",")+")")
 	}
 	if f.CountedOnly {
 		where = append(where, countedPullSQL)

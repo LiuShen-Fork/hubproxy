@@ -99,6 +99,7 @@ func AdminListPulls(c *gin.Context) {
 		Status:      c.Query("status"),
 		From:        c.Query("from"),
 		To:          c.Query("to"),
+		UserIDs:     parseUserIDs(c.QueryArray("user_id")),
 		Page:        page,
 		PageSize:    pageSize,
 		CountedOnly: true, // hide manifest-only / in-progress noise
@@ -571,4 +572,18 @@ func AdminRemoveWhiteIP(c *gin.Context) {
 	db.GlobalRuntime.Reload()
 	db.ApplySecurityToLimiter()
 	c.JSON(http.StatusOK, gin.H{"security": db.GlobalRuntime.GetSecurity()})
+}
+
+// parseUserIDs 解析重复出现的 user_id 参数（?user_id=2&user_id=5）。
+// 无法解析的项直接跳过，不因为一个坏值让整个筛选失败。
+func parseUserIDs(raw []string) []int64 {
+	out := make([]int64, 0, len(raw))
+	for _, s := range raw {
+		n, err := strconv.ParseInt(strings.TrimSpace(s), 10, 64)
+		if err != nil || n <= 0 {
+			continue
+		}
+		out = append(out, n)
+	}
+	return out
 }

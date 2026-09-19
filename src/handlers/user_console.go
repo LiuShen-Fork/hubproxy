@@ -44,7 +44,7 @@ func UserListPulls(c *gin.Context) {
 		Category:    c.Query("category"),
 		Registry:    c.Query("registry"),
 		Status:      c.Query("status"),
-		UserID:      u.ID,
+		UserIDs:     []int64{u.ID},
 		Page:        page,
 		PageSize:    pageSize,
 		CountedOnly: true,
