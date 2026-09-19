@@ -1556,7 +1556,21 @@ watch(page, load)
             </div>
 ```
 
+把详情弹窗里的：
+
+```html
+            <div>类别：<Badge variant="secondary">{{ pullSourceLabel(selected.session) }}</Badge></div>
+```
+
+替换为：
+
+```html
+            <div>类别：<Badge variant="secondary">{{ selected.session.category }}</Badge></div>
+```
+
 （`request_count` 仍在 API 与数据库里，只是不再展示；这一处替换是因为详情区本就没有「HTTP 请求」以外的位置放用户。）
+
+**这两处必须同改**：Step 1 已经移除了 `pullSourceLabel` 的 import 并禁止再加回来，而详情弹窗的「类别」行也在调用它。只改表格列、漏掉弹窗那一行的话，构建会以 `TS2339`（找不到该符号）失败——这是原计划的疏漏。弹窗里 registry 已显示在标题行（`{{ selected.session.registry }} · {{ selected.session.client_ip }}`），所以「类别」行改为直接显示 `category` 不会丢信息。
 
 - [ ] **Step 6: 构建验证**
 
