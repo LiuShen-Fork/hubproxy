@@ -881,11 +881,17 @@ export function buildQuery(q: Record<string, QueryValue>): string {
 
 - [ ] **Step 4: 加类型与 suggest 方法**
 
-`PullSession` 接口末尾（`user_id` 之后）加：
+`PullSession` 接口末尾加**两个**字段：
 
 ```ts
+  // 匿名行不会带这个键（Go 侧的 json tag 是 omitempty），故此字段是 undefined 而非 0。
+  // 前端据此区分「匿名」（无此键）与「用户已删除」（有值但 username 为空串）——
+  // 后者显示为 #<id>。
+  user_id?: number
   username: string
 ```
+
+**注意**：原计划误以为接口里已有 `user_id`，实际没有（Go 结构体有、前端接口一直没有）。后一个任务会读取 `p.user_id` 与 `selected.session.user_id`，缺了它 `vue-tsc` 会报「Property 'user_id' does not exist on type 'PullSession'」而构建失败。
 
 在 `FeatureToggles` 之前新增两个接口：
 
