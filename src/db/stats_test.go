@@ -303,6 +303,24 @@ func TestSuggestIPsMatchesPrefixAndCapsResults(t *testing.T) {
 	}
 }
 
+// insertDatedSession 插入一条 started_at 可控的拉取记录，userID 为 0 表示匿名为 NULL。
+func insertDatedSession(t *testing.T, id, ip, image, registry, startedAt string, userID int64) {
+	t.Helper()
+	var uid any
+	if userID > 0 {
+		uid = userID
+	}
+	if _, err := DB.Exec(
+		`INSERT INTO pull_sessions
+		 (id, client_ip, image_name, registry, tag, category, started_at, last_seen_at,
+		  status, bytes_total, layer_count, request_count, user_id)
+		 VALUES (?, ?, ?, ?, 'latest', 'library', ?, ?, 'completed', 10, 1, 1, ?)`,
+		id, ip, image, registry, startedAt, startedAt, uid,
+	); err != nil {
+		t.Fatalf("insert dated session: %v", err)
+	}
+}
+
 func TestListImageStatsFiltersByTimeRange(t *testing.T) {
 	useTestDB(t)
 	if err := migrate(); err != nil {
@@ -422,5 +440,155 @@ func TestListIPStatsTimeRangeAlsoNarrowsUsers(t *testing.T) {
 	}
 	if len(win[0].Users) != 1 || win[0].Users[0] != "lateuser" {
 		t.Fatalf("users 列必须与时间窗一致，应只有 lateuser，实际 %#v", win[0].Users)
+	}
+}
+
+func TestListDistinctRegistriesReturnsSortedDistinctNonEmpty(t *testing.T) {
+	useTestDB(t)
+	if err := migrate(); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	// 已从配置里移除的来源（removedRegistryDomains）的历史行仍在表里，必须同样出现；
+	// 空串不属于任何来源，不能进下拉。
+	insertDatedSession(t, "s-1", "10.0.0.1", "app", "quay.io", "2026-01-01T00:00:00Z", 0)
+	insertDatedSession(t, "s-2", "10.0.0.1", "app", "docker.io", "2026-01-01T00:00:00Z", 0)
+	insertDatedSession(t, "s-3", "10.0.0.1", "app", "quay.io", "2026-01-01T00:00:00Z", 0)
+	insertDatedSession(t, "s-4", "10.0.0.1", "app", "nvcr.io", "2026-01-01T00:00:00Z", 0)
+	insertDatedSession(t, "s-5", "10.0.0.1", "app", "", "2026-01-01T00:00:00Z", 0)
+
+	got, err := ListDistinctRegistries()
+	if err != nil {
+		t.Fatalf("list registries: %v", err)
+	}
+	want := []string{"docker.io", "nvcr.io", "quay.io"}
+	if len(got) != len(want) {
+		t.Fatalf("应返回 %d 个去重后的来源，实际 %#v", len(want), got)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("来源列表应为 %#v（去重、已排序、无空串），实际 %#v", want, got)
+		}
+	}
+}
+
+func TestListDistinctRegistriesEmptyTableReturnsEmptyArray(t *testing.T) {
+	useTestDB(t)
+	if err := migrate(); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	got, err := ListDistinctRegistries()
+	if err != nil {
+		t.Fatalf("list registries: %v", err)
+	}
+	// nil 会被序列化成 "items": null，前端读 .length 会抛 TypeError
+	if got == nil {
+		t.Fatal("没有数据时必须返回空切片而不是 nil——nil 会被序列化成 null")
+	}
+	if len(got) != 0 {
+		t.Fatalf("没有数据时应返回空切片，实际 %#v", got)
+	}
+}
+
+// 以下四个用例专门钉住时间筛选的上界：既有用例把所有的非空边界都传在 from 位上，
+// 参数写反、丢掉 to 子句或绑错列都不会被现有用例发现。
+
+func TestListImageStatsFiltersByUpperBound(t *testing.T) {
+	useTestDB(t)
+	if err := migrate(); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	insertDatedSession(t, "s-old", "10.0.0.1", "old/app", "docker.io", "2026-01-01T00:00:00Z", 0)
+	insertDatedSession(t, "s-new", "10.0.0.1", "new/app", "docker.io", "2026-09-01T00:00:00Z", 0)
+
+	got, total, err := ListImageStats("", "", "", "", "2026-06-01T00:00:00Z", 1, 50)
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if total != 1 || len(got) != 1 || got[0].ImageName != "old/app" {
+		t.Fatalf("按结束时间筛选后应只剩 old/app，实际 total=%d %#v", total, got)
+	}
+}
+
+func TestListIPStatsFiltersByUpperBound(t *testing.T) {
+	useTestDB(t)
+	if err := migrate(); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	insertDatedSession(t, "s-old", "10.9.9.1", "app", "docker.io", "2026-01-01T00:00:00Z", 0)
+	insertDatedSession(t, "s-new", "10.9.9.2", "app", "docker.io", "2026-09-01T00:00:00Z", 0)
+
+	list, total, err := ListIPStats("", "", "2026-06-01T00:00:00Z", 1, 50)
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if total != 1 || len(list) != 1 || list[0].ClientIP != "10.9.9.1" {
+		t.Fatalf("按结束时间筛选后应只剩 10.9.9.1，实际 total=%d %#v", total, list)
+	}
+}
+
+// 闭区间窗口：两侧边界都要生效，且 users 列必须跟着同一个窗口收窄。
+func TestListIPStatsBothBoundsWindowNarrowsUsers(t *testing.T) {
+	useTestDB(t)
+	if err := migrate(); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	now := Now()
+	for _, u := range []struct {
+		id   int64
+		name string
+	}{{1, "earlyuser"}, {2, "miduser"}, {3, "lateuser"}} {
+		if _, err := DB.Exec(
+			`INSERT INTO users (id, username, password_hash, role, created_at, updated_at)
+			 VALUES (?, ?, 'hash', 'user', ?, ?)`, u.id, u.name, now, now,
+		); err != nil {
+			t.Fatalf("insert user: %v", err)
+		}
+	}
+	// 同一个 IP，三个用户，跨越 8 个月
+	insertDatedSession(t, "s-early", "10.7.7.7", "app", "docker.io", "2026-01-01T00:00:00Z", 1)
+	insertDatedSession(t, "s-mid", "10.7.7.7", "app", "docker.io", "2026-04-01T00:00:00Z", 2)
+	insertDatedSession(t, "s-late", "10.7.7.7", "app", "docker.io", "2026-09-01T00:00:00Z", 3)
+
+	list, total, err := ListIPStats("10.7.7.7", "2026-03-01T00:00:00Z", "2026-06-01T00:00:00Z", 1, 50)
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if total != 1 || len(list) != 1 {
+		t.Fatalf("闭区间窗口内应只剩 1 行，实际 total=%d %#v", total, list)
+	}
+	if list[0].PullCount != 1 {
+		t.Fatalf("闭区间窗口内 pull_count 应为 1，实际 %d", list[0].PullCount)
+	}
+	// to 若被丢掉会多出 lateuser；from 若被丢掉会多出 earlyuser；
+	// from/to 写反则一个都不剩——三种错误都在这里失败。
+	if len(list[0].Users) != 1 || list[0].Users[0] != "miduser" {
+		t.Fatalf("users 列必须与同一个闭区间窗口一致，应只有 miduser，实际 %#v", list[0].Users)
+	}
+}
+
+// from 晚于 to 的倒置窗口：没有任何时刻同时满足两侧，必须返回 0 行。
+// 这正是钉住参数顺序的断言——写反了就会从 0 变成全量。
+func TestListStatsInvertedRangeReturnsNothing(t *testing.T) {
+	useTestDB(t)
+	if err := migrate(); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	insertDatedSession(t, "s-1", "10.9.9.1", "one/app", "docker.io", "2026-01-01T00:00:00Z", 0)
+	insertDatedSession(t, "s-2", "10.9.9.2", "two/app", "docker.io", "2026-09-01T00:00:00Z", 0)
+
+	got, total, err := ListImageStats("", "", "", "2026-09-01T00:00:00Z", "2026-03-01T00:00:00Z", 1, 50)
+	if err != nil {
+		t.Fatalf("list images: %v", err)
+	}
+	if total != 0 || len(got) != 0 {
+		t.Fatalf("倒置的时间窗必须返回 0 行，实际 total=%d %#v", total, got)
+	}
+
+	list, ipTotal, err := ListIPStats("", "2026-09-01T00:00:00Z", "2026-03-01T00:00:00Z", 1, 50)
+	if err != nil {
+		t.Fatalf("list ips: %v", err)
+	}
+	if ipTotal != 0 || len(list) != 0 {
+		t.Fatalf("倒置的时间窗必须返回 0 行，实际 total=%d %#v", ipTotal, list)
 	}
 }
