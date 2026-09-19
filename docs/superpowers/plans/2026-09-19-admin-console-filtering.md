@@ -1919,6 +1919,8 @@ Expected：第一条返回 JSON（未登录时返回 401 `UNAUTHORIZED` 也算�
 5. 表格已看不到「层/请求」列
 6. IP 分析页：用户列正确显示；**同一 IP 有多个用户时应出现红色标记**
 7. 镜像统计页：时间段筛选生效，且**没有**用户列
+8. IP 自动补全的下拉面板**不被容器裁切**：`Autocomplete.vue` 没有用 Teleport（与 `Select.vue` / `MultiSelect.vue` 不同），面板是 `absolute` 定位在内层 `relative` 里。当前筛选栏所在的 `Card` / `CardContent` 只有 `p-5`、没有 overflow 限制，所以预期不会被裁——但这条只有肉眼能确认。**若发现被裁，把 `Autocomplete.vue` 改成与 `MultiSelect.vue` 相同的 Teleport + fixed 定位方案。**
+9. 选中一条 IP 建议后，下拉面板**不应自己弹回来**（这是 Task 6 修掉的两个 bug 之一：`pick()` 写 model 触发 watcher 重新取数）。输入清空后同样不应弹回旧建议
 
 - [ ] **Step 6: 收尾**
 
