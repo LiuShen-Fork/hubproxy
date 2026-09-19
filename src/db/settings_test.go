@@ -5,6 +5,30 @@ import (
 	"testing"
 )
 
+// display_name 的语义从「完整短语」改成了「服务商名」，前端按
+// 「使用 {display_name} 登录 / 注册」拼接。存量的旧默认值必须迁移，
+// 否则站点会显示成「使用 OAuth2 登录 注册」；但管理员自己填过的名字不能动。
+func TestLoadOAuthMigratesLegacyDisplayNameOnly(t *testing.T) {
+	useTestDB(t)
+	if err := migrate(); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+
+	if err := SetSetting(KeyOAuth, OAuthSettings{DisplayName: legacyOAuthDisplayName}); err != nil {
+		t.Fatal(err)
+	}
+	if got := LoadOAuth().DisplayName; got == legacyOAuthDisplayName {
+		t.Fatalf("旧默认值未被迁移，前端会拼出「使用 %s 注册」", legacyOAuthDisplayName)
+	}
+
+	if err := SetSetting(KeyOAuth, OAuthSettings{DisplayName: "GitHub"}); err != nil {
+		t.Fatal(err)
+	}
+	if got := LoadOAuth().DisplayName; got != "GitHub" {
+		t.Fatalf("自定义的 display_name 被改成了 %q", got)
+	}
+}
+
 func TestDefaultFeatureTogglesDropRemovedAccelerationKeys(t *testing.T) {
 	raw, err := json.Marshal(DefaultFeatureToggles())
 	if err != nil {

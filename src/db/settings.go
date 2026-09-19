@@ -27,6 +27,11 @@ const (
 	ProjectName    = "HubProxy"
 	// AuthorHomeURL is fixed project/author attribution (not admin-configurable).
 	AuthorHomeURL = "https://www.liushen.fun/"
+
+	// legacyOAuthDisplayName is the old default for OAuthSettings.DisplayName,
+	// back when it held a finished phrase rather than a provider name. See the
+	// migration in LoadOAuth for why it still needs recognising.
+	legacyOAuthDisplayName = "OAuth2 登录"
 )
 
 type RateLimitSettings struct {
@@ -119,7 +124,9 @@ func DefaultOAuthSettings() OAuthSettings {
 	return OAuthSettings{
 		Enabled:     false,
 		Scopes:      "openid profile email",
-		DisplayName: "OAuth2 登录",
+		// 存的是「服务商名」，前端按「使用 {display_name} 登录 / 注册」拼接，
+		// 所以这里不能是「OAuth2 登录」那样的完整短语。
+		DisplayName: "第三方账号",
 	}
 }
 
@@ -408,7 +415,11 @@ func LoadOAuth() OAuthSettings {
 	if s.Scopes == "" {
 		s.Scopes = def.Scopes
 	}
-	if s.DisplayName == "" {
+	// legacyOAuthDisplayName 是 display_name 的旧默认值，存的是一个完整短语。
+	// 前端现在按「使用 {display_name} 登录 / 注册」拼接，照搬旧值会得到
+	// 「使用 OAuth2 登录 注册」。仅当存量值仍等于这个旧默认——即管理员从未改过
+	// 它——才替换成新的服务商名语义；自己填过的不动。
+	if s.DisplayName == "" || s.DisplayName == legacyOAuthDisplayName {
 		s.DisplayName = def.DisplayName
 	}
 	// migrate legacy github provider endpoints

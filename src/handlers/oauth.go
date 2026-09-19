@@ -206,8 +206,11 @@ func OAuthStart(c *gin.Context) {
 		return
 	}
 
-	if !cfg.Enabled || !admin.OAuthLoginEnabled {
-		c.JSON(http.StatusForbidden, gin.H{"error": "OAuth 登录未开启", "code": "OAUTH_LOGIN_DISABLED"})
+	// 登录与注册是两条独立通道：只要有一条开启，OAuth 流程就该放行。
+	// 只判 OAuthLoginEnabled 会让「只开 OAuth 注册」的站点点注册按钮直接 403，
+	// 而回调里本来就会按 OAuthRegisterEnabled 决定是否自动建号。
+	if !cfg.Enabled || (!admin.OAuthLoginEnabled && !admin.OAuthRegisterEnabled) {
+		c.JSON(http.StatusForbidden, gin.H{"error": "OAuth 登录与注册均未开启", "code": "OAUTH_LOGIN_DISABLED"})
 		return
 	}
 	oc, err := buildOAuthConfig(c, cfg)
