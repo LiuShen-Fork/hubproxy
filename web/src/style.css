@@ -73,6 +73,36 @@
   body {
     @apply bg-background text-foreground font-sans antialiased;
   }
+
+  /*
+   * 内滚动区（控制台主内容区、表格、下拉面板、弹窗）的滚动条：窄、圆角、
+   * 轨道透明——透明即透出所在卡片/页面的本色，比填一个固定色更贴合各处背景。
+   * 滑块取 --border，亮暗色下都是低对比的中性色，hover 时才提升到 --muted-foreground。
+   *
+   * 注意：页面级滚动条（html）在上方被刻意隐藏，那条规则选择器权重更高，
+   * 不受这里影响。Firefox 的 scrollbar-color 无法做圆角，只能取两色近似。
+   */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--border) transparent;
+  }
+  *::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  *::-webkit-scrollbar-track,
+  *::-webkit-scrollbar-corner {
+    background: transparent;
+  }
+  *::-webkit-scrollbar-thumb {
+    border: 2px solid transparent;
+    border-radius: 9999px;
+    background-color: var(--border);
+    background-clip: content-box;
+  }
+  *::-webkit-scrollbar-thumb:hover {
+    background-color: var(--muted-foreground);
+  }
 }
 
 @layer components {
